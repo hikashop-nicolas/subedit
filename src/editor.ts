@@ -21,6 +21,7 @@ import {
 import { parseSubtitles, serializeSubtitles, convertDoc } from "./subtitles";
 import { styleNames, hexToAssColor, makeDefaultStyle, uniqueStyleName, getPlayRes } from "./ass";
 import { openStyleEditor, openScriptProperties } from "./styles-editor";
+import { openKaraoke } from "./karaoke";
 import { setLocale, t, alignmentOptions } from "./i18n";
 import { Timeline } from "./waveform";
 import { createMediaPlayer, extractWaveformPeaks, type MediaPlayerHandle } from "mediaplay";
@@ -508,6 +509,21 @@ class SubtitleEditor implements SubtitleEditorHandle {
     fade.addEventListener("mousedown", (e) => e.preventDefault());
     fade.addEventListener("click", () => this.openFade(cue, ta));
     bar.appendChild(fade);
+
+    // Karaoke: syllable timing (\k).
+    const kar = document.createElement("button");
+    kar.type = "button";
+    kar.className = "se-inbtn";
+    kar.textContent = "K";
+    kar.title = t("karaoke");
+    kar.addEventListener("mousedown", (e) => e.preventDefault());
+    kar.addEventListener("click", () =>
+      openKaraoke(cue, (text) => {
+        ta.value = text;
+        this.updateCue(cue.id, { text }, true);
+      }),
+    );
+    bar.appendChild(kar);
 
     // Alignment: set/replace a leading {\anN} on the line.
     const align = document.createElement("select");
