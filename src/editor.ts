@@ -18,7 +18,7 @@ import {
   sortCues,
 } from "./cue";
 import { parseSubtitles, serializeSubtitles, convertDoc } from "./subtitles";
-import { styleNames } from "./ass";
+import { styleNames, hexToAssColor } from "./ass";
 import { openStylesEditor } from "./styles-editor";
 import { setLocale, t } from "./i18n";
 import { Timeline, extractPeaks } from "./waveform";
@@ -109,6 +109,13 @@ function injectStyles(): void {
 .se-field{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--se-muted);}
 .se-field input{font:inherit;font-variant-numeric:tabular-nums;padding:3px 6px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);width:110px;}
 .se-detail textarea{font:inherit;min-height:56px;resize:vertical;padding:6px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);}
+.se-inlinebar{display:flex;gap:5px;align-items:center;}
+.se-inbtn{font:600 12px system-ui;width:26px;height:24px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);cursor:pointer;}
+.se-inbtn:hover{border-color:var(--se-accent);}
+.se-in-i{font-style:italic;}
+.se-in-u{text-decoration:underline;}
+.se-incolor{width:26px;height:24px;padding:0;border:1px solid var(--se-border);border-radius:5px;background:none;cursor:pointer;}
+.se-inalign{font:inherit;height:24px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);}
 .se-empty,.se-noprev{flex:1 1 auto;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--se-muted);}
 .se-noprev{color:#aab;}
 .se-empty h3{margin:0;color:var(--se-fg);font-size:15px;}
@@ -417,7 +424,75 @@ class SubtitleEditor implements SubtitleEditorHandle {
     ta.value = cue.text;
     ta.spellcheck = false;
     ta.addEventListener("input", () => this.updateCue(cue.id, { text: ta.value }, /*fromText*/ true));
+    // ASS: an inline-formatting toolbar that wraps the selection in override tags.
+    if (this.doc.format === "ass") this.detailEl.appendChild(this.inlineToolbar(cue, ta));
     this.detailEl.appendChild(ta);
+  }
+
+  // Buttons that wrap the current selection in the cue's text area with ASS override
+  // tags (bold/italic/underline/colour) or set the line alignment (\anN).
+  private inlineToolbar(cue: Cue, ta: HTMLTextAreaElement): HTMLElement {
+    const bar = el("div", "se-inlinebar");
+
+    const wrap = (before: string, after: string): void => {
+      const s = ta.selectionStart ?? ta.value.length;
+      const e = ta.selectionEnd ?? s;
+      ta.value = ta.value.slice(0, s) + before + ta.value.slice(s, e) + after + ta.value.slice(e);
+      ta.focus();
+      ta.setSelectionRange(s + before.length, e + before.length);
+      this.updateCue(cue.id, { text: ta.value }, true);
+    };
+
+    const tagBtn = (label: string, on: string, off: string, cls: string): HTMLButtonElement => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `se-inbtn ${cls}`;
+      b.textContent = label;
+      b.title = label;
+      b.addEventListener("mousedown", (e) => e.preventDefault()); // keep the text selection
+      b.addEventListener("click", () => wrap(`{\\${on}}`, `{\\${off}}`));
+      return b;
+    };
+    bar.append(
+      tagBtn("B", "b1", "b0", "se-in-b"),
+      tagBtn("I", "i1", "i0", "se-in-i"),
+      tagBtn("U", "u1", "u0", "se-in-u"),
+    );
+
+    // Colour: wrap the selection in {\c&HBBGGRR&}...{\r} (reset to the style at the end).
+    const colour = document.createElement("input");
+    colour.type = "color";
+    colour.className = "se-incolor";
+    colour.title = t("stylePrimary");
+    colour.addEventListener("mousedown", (e) => e.stopPropagation());
+    colour.addEventListener("input", () => wrap(`{\\c${hexToAssColor(colour.value)}}`, "{\\r}"));
+    bar.appendChild(colour);
+
+    // Alignment: set/replace a leading {\anN} on the line.
+    const align = document.createElement("select");
+    align.className = "se-inalign";
+    align.title = t("styleAlign");
+    const opt0 = document.createElement("option");
+    opt0.value = "";
+    opt0.textContent = t("styleAlign");
+    align.appendChild(opt0);
+    for (const a of ["7", "8", "9", "4", "5", "6", "1", "2", "3"]) {
+      const o = document.createElement("option");
+      o.value = a;
+      o.textContent = `\\an${a}`;
+      align.appendChild(o);
+    }
+    align.addEventListener("change", () => {
+      if (!align.value) return;
+      const stripped = cue.text.replace(/^\{\\an[1-9]\}/, "");
+      ta.value = `{\\an${align.value}}` + stripped;
+      this.updateCue(cue.id, { text: ta.value }, true);
+      align.value = "";
+      ta.focus();
+    });
+    bar.appendChild(align);
+
+    return bar;
   }
 
   private timeField(label: string, value: string, onCommit: (v: string) => void): HTMLElement {

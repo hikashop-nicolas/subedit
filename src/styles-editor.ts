@@ -24,14 +24,18 @@ function injectStylesCss(): void {
 .se-modal-head{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--se-border,#33353b);}
 .se-modal-head h3{margin:0;font-size:14px;flex:1 1 auto;}
 .se-modal-body{overflow:auto;padding:8px 14px;}
-.se-style-row{display:grid;grid-template-columns:1.4fr 1.2fr 56px 44px 44px auto;gap:8px;align-items:center;
-  padding:8px 0;border-bottom:1px solid var(--se-border,#33353b);}
-.se-style-row .se-swatches{display:flex;gap:6px;align-items:center;}
-.se-style-row label{display:flex;flex-direction:column;gap:2px;font-size:10px;color:var(--se-muted,#9aa0aa);text-transform:uppercase;letter-spacing:.03em;}
+.se-style-row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;
+  padding:10px 0;border-bottom:1px solid var(--se-border,#33353b);}
+.se-style-row label{display:flex;flex-direction:column;gap:3px;font-size:10px;color:var(--se-muted,#9aa0aa);
+  text-transform:uppercase;letter-spacing:.03em;white-space:nowrap;}
+.se-style-row .se-col-name{flex:1 1 150px;min-width:130px;}
+.se-style-row .se-col-font{flex:1 1 130px;min-width:110px;}
+.se-style-row .se-col-size{flex:0 0 58px;}
+.se-style-row .se-col-align{flex:0 0 78px;}
 .se-style-row input[type=text],.se-style-row input[type=number],.se-style-row select{
   font:inherit;padding:3px 5px;border:1px solid var(--se-border,#33353b);border-radius:5px;background:var(--se-head,#25272c);color:var(--se-fg,#e6e7ea);width:100%;box-sizing:border-box;}
-.se-style-row input[type=color]{width:26px;height:22px;padding:0;border:1px solid var(--se-border,#33353b);border-radius:4px;background:none;cursor:pointer;}
-.se-style-toggles{display:flex;gap:6px;align-items:center;}
+.se-style-row input[type=color]{width:28px;height:24px;padding:0;border:1px solid var(--se-border,#33353b);border-radius:4px;background:none;cursor:pointer;}
+.se-style-toggles{display:flex;gap:4px;align-items:center;}
 .se-style-toggles button{font:600 12px system-ui;width:24px;height:24px;border:1px solid var(--se-border,#33353b);border-radius:5px;background:var(--se-head,#25272c);color:var(--se-fg,#e6e7ea);cursor:pointer;}
 .se-style-toggles button.on{background:var(--se-accent,#2563eb);border-color:var(--se-accent,#2563eb);color:#fff;}
 .se-style-actions{display:flex;gap:4px;}
@@ -140,6 +144,7 @@ export function openStylesEditor(host: StylesEditorHost): void {
 
     // Name.
     const nameWrap = document.createElement("label");
+    nameWrap.className = "se-col-name";
     nameWrap.textContent = t("styleName");
     const nameInput = document.createElement("input");
     nameInput.type = "text";
@@ -155,6 +160,7 @@ export function openStylesEditor(host: StylesEditorHost): void {
 
     // Font.
     const fontWrap = document.createElement("label");
+    fontWrap.className = "se-col-font";
     fontWrap.textContent = t("styleFont");
     const fontInput = document.createElement("input");
     fontInput.type = "text";
@@ -169,11 +175,11 @@ export function openStylesEditor(host: StylesEditorHost): void {
       style.fields.Fontsize = v;
       host.onChange();
     });
+    sizeWrap.classList.add("se-col-size");
 
-    // Colours.
-    const swatches = document.createElement("div");
-    swatches.className = "se-swatches";
-    swatches.append(colourSwatch(t("stylePrimary"), "PrimaryColour", style), colourSwatch(t("styleOutline"), "OutlineColour", style));
+    // Colours (each is its own labeled swatch).
+    const fillWrap = colourSwatch(t("stylePrimary"), "PrimaryColour", style);
+    const outlineWrap = colourSwatch(t("styleOutline"), "OutlineColour", style);
 
     // Toggles.
     const toggles = document.createElement("div");
@@ -182,6 +188,7 @@ export function openStylesEditor(host: StylesEditorHost): void {
 
     // Alignment.
     const alignWrap = document.createElement("label");
+    alignWrap.className = "se-col-align";
     alignWrap.textContent = t("styleAlign");
     const alignSel = document.createElement("select");
     for (const a of ["7", "8", "9", "4", "5", "6", "1", "2", "3"]) {
@@ -217,15 +224,8 @@ export function openStylesEditor(host: StylesEditorHost): void {
     });
     actions.append(dup, del);
 
-    row.append(nameWrap, fontWrap, sizeWrap, wrapCell(swatches), wrapCell(toggles), alignWrap, actions);
+    row.append(nameWrap, fontWrap, sizeWrap, fillWrap, outlineWrap, toggles, alignWrap, actions);
     return row;
-  }
-
-  function wrapCell(inner: HTMLElement): HTMLElement {
-    const l = document.createElement("label");
-    l.textContent = " ";
-    l.appendChild(inner);
-    return l;
   }
 
   function uniqueName(base: string): string {
