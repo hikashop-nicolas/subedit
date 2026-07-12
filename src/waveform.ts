@@ -238,9 +238,10 @@ export class Timeline {
       const { x0, x1 } = this.cueRect(c);
       if (x1 < 0 || x0 > this.width) continue;
       const sel = c.id === selId;
+      const commented = c.assKind === "Comment";
       const w = Math.max(2, x1 - x0);
       ctx.fillStyle = this.pal.cue;
-      ctx.globalAlpha = sel ? 0.5 : 0.32;
+      ctx.globalAlpha = (sel ? 0.5 : 0.32) * (commented ? 0.4 : 1);
       roundRect(ctx, x0, top, w, bottom - top, 3);
       ctx.fill();
       ctx.globalAlpha = 1;

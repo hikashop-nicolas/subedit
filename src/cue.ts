@@ -21,9 +21,10 @@ export interface Cue {
   // Raw NOTE/STYLE/REGION (VTT) or Comment/;/font (ASS) block(s) immediately preceding
   // this cue, verbatim, so metadata travels with its following cue across edits.
   notesBefore?: string;
-  // ASS event kind (always "Dialogue" for editable cues; "Comment" lines are kept as
-  // notes) and the non-time/text Event fields keyed by their Format name (Layer, Style,
-  // Name, MarginL/R/V, Effect, ...), preserved and re-emitted in the file's field order.
+  // ASS event kind: "Dialogue" (shown) or "Comment" (disabled, kept in the file but not
+  // rendered). The non-time/text Event fields (Layer, Style, Name, MarginL/R/V, Effect,
+  // ...) keyed by their Format name, preserved and re-emitted in the file's field order.
+  assKind?: "Dialogue" | "Comment";
   assFields?: Record<string, string>;
 }
 

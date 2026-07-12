@@ -95,6 +95,8 @@ function injectStyles(): void {
 .se-row:hover{background:var(--se-head);}
 .se-row.sel{background:var(--se-sel);color:var(--se-sel-fg);}
 .se-row.playing{box-shadow:inset 3px 0 0 var(--se-accent);}
+.se-row.commented .se-text{opacity:.5;font-style:italic;}
+.se-row.commented .se-num::after{content:" ⊘";color:var(--se-muted);}
 .se-cell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .se-num{color:var(--se-muted);}
 .se-time{font-variant-numeric:tabular-nums;font-size:12px;}
@@ -105,6 +107,11 @@ function injectStyles(): void {
 .se-times{display:flex;gap:8px;flex-wrap:wrap;}
 .se-field{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--se-muted);}
 .se-field input{font:inherit;font-variant-numeric:tabular-nums;padding:3px 6px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);width:110px;}
+.se-assextras{flex-wrap:wrap;}
+.se-numfield input{width:56px;}
+.se-actorfield input,.se-effectfield input{width:100px;}
+.se-checkfield{flex-direction:row;align-items:center;gap:5px;}
+.se-checkfield input{width:auto;}
 .se-stylerow{display:flex;gap:4px;align-items:center;}
 .se-stylefield select{font:inherit;padding:3px 6px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);}
 .se-styleedit{padding:3px 6px;}
@@ -363,6 +370,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     (row.children[5] as HTMLElement).textContent = cue.text.replace(/\n/g, " ⏎ ");
     row.classList.toggle("sel", cue.id === this.selectedId);
     row.classList.toggle("playing", cue.id === this.playingId);
+    row.classList.toggle("commented", cue.assKind === "Comment");
   }
 
   private refreshRow(id: string): void {
@@ -423,6 +431,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     );
     if (this.doc.format === "ass") times.appendChild(this.styleField(cue));
     this.detailEl.appendChild(times);
+    if (this.doc.format === "ass") this.detailEl.appendChild(this.assExtrasRow(cue));
 
     const ta = document.createElement("textarea");
     ta.value = cue.text;
@@ -542,6 +551,47 @@ class SubtitleEditor implements SubtitleEditorHandle {
     edit.addEventListener("click", () => this.editStyle(select.value));
     row.append(select, edit);
     wrap.appendChild(row);
+    return wrap;
+  }
+
+  // A compact row of the remaining ASS Event fields for the selected cue.
+  private assExtrasRow(cue: Cue): HTMLElement {
+    const row = el("div", "se-times se-assextras");
+
+    const cwrap = el("label", "se-field se-checkfield", t("disabled"));
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = cue.assKind === "Comment";
+    cb.addEventListener("change", () => {
+      cue.assKind = cb.checked ? "Comment" : "Dialogue";
+      this.refreshRow(cue.id);
+      this.timeline?.render();
+      this.markDirty();
+    });
+    cwrap.appendChild(cb);
+    row.appendChild(cwrap);
+
+    row.appendChild(this.assField(cue, "Name", t("actor"), "text", "se-actorfield"));
+    row.appendChild(this.assField(cue, "Effect", t("effect"), "text", "se-effectfield"));
+    row.appendChild(this.assField(cue, "Layer", t("layer"), "number", "se-numfield"));
+    row.appendChild(this.assField(cue, "MarginL", t("marginL"), "number", "se-numfield"));
+    row.appendChild(this.assField(cue, "MarginR", t("marginR"), "number", "se-numfield"));
+    row.appendChild(this.assField(cue, "MarginV", t("marginV"), "number", "se-numfield"));
+    return row;
+  }
+
+  private assField(cue: Cue, key: string, label: string, type: "text" | "number", cls: string): HTMLElement {
+    const wrap = el("label", `se-field ${cls}`, label);
+    const input = document.createElement("input");
+    input.type = type;
+    input.value = cue.assFields?.[key] ?? (type === "number" ? "0" : "");
+    const commit = () => {
+      (cue.assFields ??= {})[key] = input.value;
+      this.refreshRow(cue.id);
+      this.markDirty();
+    };
+    input.addEventListener("change", commit);
+    wrap.appendChild(input);
     return wrap;
   }
 

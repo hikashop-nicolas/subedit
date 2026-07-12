@@ -64,21 +64,25 @@ export function convertDoc(doc: SubtitleDoc, target: SubtitleFormat): SubtitleDo
       settings: undefined,
       notesBefore: undefined,
       text: c.text.replace(/\r?\n/g, "\\N"),
+      assKind: "Dialogue" as const,
       assFields: { Layer: "0", Style: "Default", Name: "", MarginL: "0", MarginR: "0", MarginV: "0", Effect: "" },
     }));
     return next;
   }
 
-  // Target is SRT or VTT.
+  // Target is SRT or VTT: drop commented (disabled) ASS cues, they have no equivalent.
   next.header = target === "vtt" ? "WEBVTT" : undefined;
   next.trailingNotes = undefined;
-  next.cues = doc.cues.map((c): Cue => ({
-    ...c,
-    identifier: undefined,
-    settings: undefined,
-    notesBefore: undefined,
-    assFields: undefined,
-    text: fromAss ? plainFromAss(c.text) : c.text,
-  }));
+  next.cues = doc.cues
+    .filter((c) => c.assKind !== "Comment")
+    .map((c): Cue => ({
+      ...c,
+      identifier: undefined,
+      settings: undefined,
+      notesBefore: undefined,
+      assKind: undefined,
+      assFields: undefined,
+      text: fromAss ? plainFromAss(c.text) : c.text,
+    }));
   return next;
 }

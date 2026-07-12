@@ -130,8 +130,9 @@ export function parseAss(raw: string): SubtitleDoc {
   const textI = assFormat.findIndex((f) => /^Text$/i.test(f));
   for (let i = eventsFormatIdx + 1; i < lines.length; i += 1) {
     const line = lines[i];
-    if (/^Dialogue\s*:/i.test(line)) {
-      const values = splitFields(line.replace(/^Dialogue\s*:\s?/i, ""), assFormat.length);
+    const m = line.match(/^(Dialogue|Comment)\s*:\s?/i);
+    if (m) {
+      const values = splitFields(line.slice(m[0].length), assFormat.length);
       const assFields: Record<string, string> = {};
       assFormat.forEach((name, j) => {
         if (j !== startI && j !== endI && j !== textI) assFields[name] = values[j] ?? "";
@@ -141,6 +142,7 @@ export function parseAss(raw: string): SubtitleDoc {
         startMs: startI >= 0 ? parseTimestamp(values[startI] ?? "") || 0 : 0,
         endMs: endI >= 0 ? parseTimestamp(values[endI] ?? "") || 0 : 0,
         text: textI >= 0 ? values[textI] ?? "" : "",
+        assKind: /^d/i.test(m[1]) ? "Dialogue" : "Comment",
         assFields,
         notesBefore: pending.length ? pending.join(eol) : undefined,
       });
@@ -177,7 +179,7 @@ function serializeDialogue(cue: Cue, format: string[]): string {
     if (/^Text$/i.test(name)) return cue.text;
     return cue.assFields?.[name] ?? "";
   });
-  return `Dialogue: ${fields.join(",")}`;
+  return `${cue.assKind ?? "Dialogue"}: ${fields.join(",")}`;
 }
 
 export function serializeAss(doc: SubtitleDoc): string {

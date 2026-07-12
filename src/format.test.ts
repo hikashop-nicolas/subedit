@@ -124,17 +124,20 @@ const ASS_GOLDEN = [
 ].join("\n");
 
 describe("ASS", () => {
-  it("parses dialogue cues, times, style and text with commas", () => {
+  it("parses dialogue and comment cues, times, style and text with commas", () => {
     const doc = parseAss(ASS_GOLDEN);
-    expect(doc.cues).toHaveLength(2); // Comment line is not an editable cue
+    expect(doc.cues).toHaveLength(3); // Dialogue + Comment + Dialogue
     expect(doc.cues[0].startMs).toBe(1000);
     expect(doc.cues[0].endMs).toBe(4000);
     expect(doc.cues[0].text).toBe("Hello, world");
+    expect(doc.cues[0].assKind).toBe("Dialogue");
     expect(doc.cues[0].assFields?.Style).toBe("Default");
-    expect(doc.cues[1].startMs).toBe(5500);
-    expect(doc.cues[1].endMs).toBe(8200);
-    expect(doc.cues[1].text).toBe("{\\i1}Styled{\\i0} line");
-    expect(doc.cues[1].assFields?.Style).toBe("Title");
+    expect(doc.cues[1].assKind).toBe("Comment");
+    expect(doc.cues[1].text).toBe("commented out");
+    expect(doc.cues[2].startMs).toBe(5500);
+    expect(doc.cues[2].endMs).toBe(8200);
+    expect(doc.cues[2].text).toBe("{\\i1}Styled{\\i0} line");
+    expect(doc.cues[2].assFields?.Style).toBe("Title");
   });
   it("collects styles for the editor and picker", () => {
     const doc = parseAss(ASS_GOLDEN);
@@ -142,8 +145,10 @@ describe("ASS", () => {
     expect(doc.styles?.[0].fields.Fontsize).toBe("72");
     expect(doc.styles?.[1].fields.Fontsize).toBe("90");
   });
-  it("keeps the Comment line as a note on the following cue", () => {
-    expect(parseAss(ASS_GOLDEN).cues[1].notesBefore).toContain("Comment: 0,");
+  it("round-trips a Comment line as a disabled cue", () => {
+    const doc = parseAss(ASS_GOLDEN);
+    expect(doc.cues[1].assKind).toBe("Comment");
+    expect(serializeAss(doc)).toContain("Comment: 0,0:00:04.00,0:00:05.00,Default,,0,0,0,,commented out");
   });
   it("round-trips byte-for-byte", () => {
     expect(serializeAss(parseAss(ASS_GOLDEN))).toBe(ASS_GOLDEN);
