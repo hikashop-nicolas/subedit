@@ -164,13 +164,30 @@ export function openStyleEditor(host: StylesEditorHost, style: AssStyle): void {
       host.onChange();
     }),
   );
-  // Font + size.
-  body.appendChild(
-    textField(t("styleFont"), "se-f-font", style.fields.Fontname ?? "", (v) => {
-      style.fields.Fontname = v;
-      host.onChange();
-    }),
-  );
+  // Font (with a datalist of fonts used in this file) + size.
+  const fontWrap = document.createElement("label");
+  fontWrap.className = "se-f-font";
+  fontWrap.textContent = t("styleFont");
+  const fontInput = document.createElement("input");
+  fontInput.type = "text";
+  fontInput.value = style.fields.Fontname ?? "";
+  fontInput.setAttribute("list", "se-fontlist");
+  fontInput.addEventListener("change", () => {
+    style.fields.Fontname = fontInput.value;
+    host.onChange();
+  });
+  const datalist = document.createElement("datalist");
+  datalist.id = "se-fontlist";
+  const fonts = new Set<string>();
+  for (const s of doc.styles ?? []) if (s.fields.Fontname) fonts.add(s.fields.Fontname);
+  for (const f of ["Arial", "Helvetica", "Times New Roman", "Verdana", "Tahoma", "Trebuchet MS", "Georgia", "Courier New", "Comic Sans MS"]) fonts.add(f);
+  for (const f of fonts) {
+    const o = document.createElement("option");
+    o.value = f;
+    datalist.appendChild(o);
+  }
+  fontWrap.append(fontInput, datalist);
+  body.appendChild(fontWrap);
   body.appendChild(
     numField(t("styleSize"), "se-f-size", style.fields.Fontsize ?? "", (v) => {
       style.fields.Fontsize = v;
@@ -245,6 +262,43 @@ export function openStyleEditor(host: StylesEditorHost, style: AssStyle): void {
     );
   }
 
+  // Scale / spacing / rotation, border style, encoding.
+  for (const [label, field] of [
+    [t("styleScaleX"), "ScaleX"],
+    [t("styleScaleY"), "ScaleY"],
+    [t("styleSpacing"), "Spacing"],
+    [t("styleAngle"), "Angle"],
+    [t("styleEncoding"), "Encoding"],
+  ] as const) {
+    body.appendChild(
+      numField(label, "se-f-margin", style.fields[field] ?? "", (v) => {
+        style.fields[field] = v;
+        host.onChange();
+      }),
+    );
+  }
+
+  const borderWrap = document.createElement("label");
+  borderWrap.className = "se-f-align";
+  borderWrap.textContent = t("styleBorder");
+  const borderSel = document.createElement("select");
+  for (const [v, lbl] of [
+    ["1", t("borderOutline")],
+    ["3", t("borderBox")],
+  ]) {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = lbl;
+    borderSel.appendChild(o);
+  }
+  borderSel.value = style.fields.BorderStyle ?? "1";
+  borderSel.addEventListener("change", () => {
+    style.fields.BorderStyle = borderSel.value;
+    host.onChange();
+  });
+  borderWrap.appendChild(borderSel);
+  body.appendChild(borderWrap);
+
   dupBtn.addEventListener("click", () => {
     const copy: AssStyle = { name: uniqueStyleName(doc, style.name + " copy"), fields: { ...style.fields } };
     const idx = doc.styles!.indexOf(style);
@@ -259,6 +313,91 @@ export function openStyleEditor(host: StylesEditorHost, style: AssStyle): void {
     host.onChange();
     close();
   });
+}
+
+// --- Script properties (Script Info fields) ------------------------------------------
+
+function getScriptField(info: string, key: string): string {
+  return info.match(new RegExp(`^\\s*${key}\\s*:\\s*(.*)$`, "im"))?.[1]?.trim() ?? "";
+}
+function setScriptField(info: string, key: string, value: string, eol: string): string {
+  const re = new RegExp(`^(\\s*${key}\\s*:).*$`, "im");
+  if (re.test(info)) return info.replace(re, `$1 ${value}`);
+  // Insert after the [Script Info] header (or at the top).
+  const lines = info.split(/\r?\n/);
+  const at = lines.findIndex((l) => /^\[script info\]/i.test(l.trim()));
+  lines.splice(at >= 0 ? at + 1 : 0, 0, `${key}: ${value}`);
+  return lines.join(eol);
+}
+
+export function openScriptProperties(host: { getDoc(): SubtitleDoc; onChange(): void }): void {
+  injectStylesCss();
+  const doc = host.getDoc();
+
+  const back = document.createElement("div");
+  back.className = "se-modal-back";
+  const modal = document.createElement("div");
+  modal.className = "se-modal";
+  back.appendChild(modal);
+  const head = document.createElement("div");
+  head.className = "se-modal-head";
+  const h3 = document.createElement("h3");
+  h3.textContent = t("scriptProps");
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "se-btnp";
+  closeBtn.textContent = t("close");
+  head.append(h3, closeBtn);
+  const body = document.createElement("div");
+  body.className = "se-modal-body";
+  modal.append(head, body);
+  document.body.appendChild(back);
+  const close = () => back.remove();
+  closeBtn.addEventListener("click", close);
+  back.addEventListener("click", (e) => {
+    if (e.target === back) close();
+  });
+
+  const set = (key: string, value: string) => {
+    doc.assScriptInfo = setScriptField(doc.assScriptInfo ?? "[Script Info]", key, value, doc.eol);
+    host.onChange();
+  };
+  const info = () => doc.assScriptInfo ?? "";
+
+  const textField = (label: string, cls: string, key: string): HTMLElement => {
+    const wrap = document.createElement("label");
+    wrap.className = cls;
+    wrap.textContent = label;
+    const input = document.createElement("input");
+    input.type = cls === "se-f-size" ? "number" : "text";
+    input.value = getScriptField(info(), key);
+    input.addEventListener("change", () => set(key, input.value));
+    wrap.appendChild(input);
+    return wrap;
+  };
+  const selectField = (label: string, key: string, opts: [string, string][], fallback: string): HTMLElement => {
+    const wrap = document.createElement("label");
+    wrap.className = "se-f-align";
+    wrap.textContent = label;
+    const sel = document.createElement("select");
+    for (const [v, lbl] of opts) {
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = lbl;
+      sel.appendChild(o);
+    }
+    sel.value = getScriptField(info(), key) || fallback;
+    sel.addEventListener("change", () => set(key, sel.value));
+    wrap.appendChild(sel);
+    return wrap;
+  };
+
+  body.append(
+    textField(t("scriptTitle"), "se-f-name", "Title"),
+    textField(t("playResX"), "se-f-size", "PlayResX"),
+    textField(t("playResY"), "se-f-size", "PlayResY"),
+    selectField(t("wrapStyle"), "WrapStyle", [["0", "0"], ["1", "1"], ["2", "2"], ["3", "3"]], "0"),
+    selectField(t("scaledBorder"), "ScaledBorderAndShadow", [["yes", "yes"], ["no", "no"]], "yes"),
+  );
 }
 
 // Re-exported so hosts can build a style and open its editor.

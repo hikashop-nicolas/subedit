@@ -20,7 +20,7 @@ import {
 } from "./cue";
 import { parseSubtitles, serializeSubtitles, convertDoc } from "./subtitles";
 import { styleNames, hexToAssColor, makeDefaultStyle, uniqueStyleName, getPlayRes } from "./ass";
-import { openStyleEditor } from "./styles-editor";
+import { openStyleEditor, openScriptProperties } from "./styles-editor";
 import { setLocale, t, alignmentOptions } from "./i18n";
 import { Timeline } from "./waveform";
 import { createMediaPlayer, extractWaveformPeaks, type MediaPlayerHandle } from "mediaplay";
@@ -64,6 +64,7 @@ const ICON = {
   shift: svgIcon('<circle cx="8" cy="8" r="5.5"/><path d="M8 5v3.2l2.2 1.3"/>'),
   overlaps: svgIcon('<rect x="2.5" y="3.5" width="7" height="4" rx="1"/><rect x="6.5" y="8.5" width="7" height="4" rx="1"/>'),
   styles: svgIcon('<path d="M5 3.5h6M8 3.5v9M5.5 12.5h5"/><path d="M11.5 8.5l2-2 1.5 1.5-2 2z"/>'),
+  script: svgIcon('<rect x="3" y="2.5" width="10" height="11" rx="1"/><path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3"/>'),
   save: svgIcon('<path d="M8 2.5v7.5M5 7.5l3 3 3-3M3.5 13h9"/>'),
 };
 
@@ -155,6 +156,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private detailEl!: HTMLDivElement;
   private countEl!: HTMLSpanElement;
   private stylesBtn!: HTMLButtonElement;
+  private scriptBtn!: HTMLButtonElement;
   private rightEl!: HTMLDivElement;
   private player: MediaPlayerHandle | null = null;
   private video: HTMLMediaElement | null = null;
@@ -215,6 +217,13 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.stylesBtn = this.iconButton(ICON.styles, t("addStyle"), () => this.addStyle());
     this.stylesBtn.style.display = this.doc.format === "ass" ? "" : "none";
     bar.appendChild(this.stylesBtn);
+
+    // Script properties (ASS only).
+    this.scriptBtn = this.iconButton(ICON.script, t("scriptProps"), () =>
+      openScriptProperties({ getDoc: () => this.doc, onChange: () => this.markDirty() }),
+    );
+    this.scriptBtn.style.display = this.doc.format === "ass" ? "" : "none";
+    bar.appendChild(this.scriptBtn);
 
     const sp = el("span", "se-sp");
     bar.appendChild(sp);
@@ -825,6 +834,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     if (target === this.doc.format) return;
     this.doc = convertDoc(this.doc, target);
     this.stylesBtn.style.display = target === "ass" ? "" : "none";
+    this.scriptBtn.style.display = target === "ass" ? "" : "none";
     this.rows.clear();
     this.innerEl.textContent = "";
     this.renderList();
