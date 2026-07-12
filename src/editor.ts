@@ -742,11 +742,20 @@ class SubtitleEditor implements SubtitleEditorHandle {
     const fscy = field(t("styleScaleY"), get(/\\fscy([\d.]+)/, "100"));
     const fsp = field(t("styleSpacing"), get(/\\fsp(-?[\d.]+)/, "0"));
     const blur = field(t("blur"), get(/\\blur([\d.]+)/, "0"));
+
+    // Animate: wrap the transform in \t so it eases from the style default to these values.
+    const animWrap = el("label", "se-field se-checkfield", t("animate"));
+    const anim = document.createElement("input");
+    anim.type = "checkbox";
+    anim.checked = /\\t\(/.test(cue.text);
+    animWrap.appendChild(anim);
+    pop.appendChild(animWrap);
+
     const apply = document.createElement("button");
     apply.className = "se-btn";
     apply.textContent = t("apply");
     apply.addEventListener("click", () => {
-      const stripped = cue.text.replace(/\\(frz|fscx|fscy|fsp|blur)-?[\d.]+/g, "").replace(/\{\}/g, "");
+      const stripped = cue.text.replace(/\\t\([^)]*\)/g, "").replace(/\\(frz|fscx|fscy|fsp|blur)-?[\d.]+/g, "").replace(/\{\}/g, "");
       const tags: string[] = [];
       const add = (tag: string, v: string, def: number) => {
         if (v !== "" && parseFloat(v) !== def) tags.push(`\\${tag}${v}`);
@@ -756,7 +765,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
       add("fscy", fscy.value, 100);
       add("fsp", fsp.value, 0);
       add("blur", blur.value, 0);
-      ta.value = (tags.length ? `{${tags.join("")}}` : "") + stripped;
+      const body = tags.length ? (anim.checked ? `\\t(${tags.join("")})` : tags.join("")) : "";
+      ta.value = (body ? `{${body}}` : "") + stripped;
       this.updateCue(cue.id, { text: ta.value }, true);
       pop.remove();
     });
