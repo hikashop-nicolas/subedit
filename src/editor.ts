@@ -19,7 +19,7 @@ import {
   sortCues,
 } from "./cue";
 import { parseSubtitles, serializeSubtitles, convertDoc } from "./subtitles";
-import { styleNames, hexToAssColor, makeDefaultStyle, uniqueStyleName } from "./ass";
+import { styleNames, hexToAssColor, makeDefaultStyle, uniqueStyleName, getPlayRes } from "./ass";
 import { openStyleEditor } from "./styles-editor";
 import { setLocale, t, alignmentOptions } from "./i18n";
 import { Timeline } from "./waveform";
@@ -123,6 +123,10 @@ function injectStyles(): void {
 .se-in-u{text-decoration:underline;}
 .se-incolor{width:26px;height:24px;padding:0;border:1px solid var(--se-border);border-radius:5px;background:none;cursor:pointer;}
 .se-inalign{font:inherit;height:24px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);}
+.se-inbtn.on,.se-posbtn.on{background:var(--se-accent);border-color:var(--se-accent);color:#fff;}
+.se-posoverlay{position:absolute;inset:0;z-index:5;cursor:crosshair;background:rgba(37,99,235,0.08);box-shadow:inset 0 0 0 2px var(--se-accent);}
+.se-fadepop{display:flex;gap:8px;align-items:flex-end;padding:6px;border:1px solid var(--se-border);border-radius:6px;background:var(--se-bg);}
+.se-fadepop input{width:70px;}
 .se-empty,.se-noprev{flex:1 1 auto;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--se-muted);}
 .se-noprev{color:#aab;}
 .se-empty h3{margin:0;color:var(--se-fg);font-size:15px;}
@@ -157,6 +161,9 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private timeline: Timeline | null = null;
   private waveAbort: AbortController | null = null;
   private waveStatusEl: HTMLDivElement | null = null;
+  private detailTextarea: HTMLTextAreaElement | null = null;
+  private posOverlay: HTMLDivElement | null = null;
+  private positionCueId: string | null = null;
   private rows = new Map<string, HTMLDivElement>();
   private rafPending = false;
   private subtitleTimer = 0;
@@ -383,6 +390,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
   private select(id: string): void {
     if (this.selectedId === id) return;
+    if (this.posOverlay) this.exitPosition();
     const prev = this.selectedId;
     this.selectedId = id;
     if (prev) this.refreshRow(prev);
@@ -436,6 +444,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     const ta = document.createElement("textarea");
     ta.value = cue.text;
     ta.spellcheck = false;
+    this.detailTextarea = ta;
     ta.addEventListener("input", () => this.updateCue(cue.id, { text: ta.value }, /*fromText*/ true));
     // ASS: an inline-formatting toolbar that wraps the selection in override tags.
     if (this.doc.format === "ass") this.detailEl.appendChild(this.inlineToolbar(cue, ta));
@@ -481,13 +490,23 @@ class SubtitleEditor implements SubtitleEditorHandle {
     colour.addEventListener("input", () => wrap(`{\\c${hexToAssColor(colour.value)}}`, "{\\r}"));
     bar.appendChild(colour);
 
+    // Fade in/out: prepend {\fad(in,out)} (ms).
+    const fade = document.createElement("button");
+    fade.type = "button";
+    fade.className = "se-inbtn";
+    fade.textContent = t("fade");
+    fade.title = t("fade");
+    fade.addEventListener("mousedown", (e) => e.preventDefault());
+    fade.addEventListener("click", () => this.openFade(cue, ta));
+    bar.appendChild(fade);
+
     // Alignment: set/replace a leading {\anN} on the line.
     const align = document.createElement("select");
     align.className = "se-inalign";
     align.title = t("styleAlign");
     const opt0 = document.createElement("option");
     opt0.value = "";
-    opt0.textContent = t("alignPos");
+    opt0.textContent = t("styleAlign");
     align.appendChild(opt0);
     for (const { value, label } of alignmentOptions()) {
       const o = document.createElement("option");
@@ -505,7 +524,107 @@ class SubtitleEditor implements SubtitleEditorHandle {
     });
     bar.appendChild(align);
 
+    // Position picker: click on the preview to place the line (\pos).
+    const posBtn = document.createElement("button");
+    posBtn.type = "button";
+    posBtn.className = "se-inbtn se-posbtn" + (this.positionCueId === cue.id ? " on" : "");
+    posBtn.textContent = "⌖";
+    posBtn.title = t("positionPick");
+    posBtn.addEventListener("mousedown", (e) => e.preventDefault());
+    posBtn.addEventListener("click", () => this.togglePosition(cue));
+    bar.appendChild(posBtn);
+
     return bar;
+  }
+
+  // --- position picker (\pos via clicking the preview) ---------------------
+
+  private togglePosition(cue: Cue): void {
+    if (this.posOverlay) {
+      this.exitPosition();
+      return;
+    }
+    if (!this.video) {
+      this.toast(t("posNeedsVideo"));
+      return;
+    }
+    this.positionCueId = cue.id;
+    const ov = el("div", "se-posoverlay") as HTMLDivElement;
+    ov.title = t("positionPick");
+    const point = (e: PointerEvent) => {
+      const c = this.doc.cues.find((k) => k.id === this.positionCueId);
+      if (c) this.setCuePosition(c, e.clientX, e.clientY);
+    };
+    ov.addEventListener("pointerdown", point);
+    ov.addEventListener("pointermove", (e) => {
+      if (e.buttons & 1) point(e);
+    });
+    this.rightEl.appendChild(ov);
+    this.posOverlay = ov;
+    this.renderDetail(); // highlight the toggle
+  }
+
+  private exitPosition(): void {
+    this.posOverlay?.remove();
+    this.posOverlay = null;
+    this.positionCueId = null;
+    this.renderDetail();
+  }
+
+  private setCuePosition(cue: Cue, clientX: number, clientY: number): void {
+    if (!this.video) return;
+    const rect = this.video.getBoundingClientRect();
+    const vid = this.video as HTMLVideoElement;
+    const vW = vid.videoWidth || rect.width;
+    const vH = vid.videoHeight || rect.height;
+    const scale = Math.min(rect.width / vW, rect.height / vH) || 1;
+    const cw = vW * scale;
+    const ch = vH * scale;
+    const ox = rect.left + (rect.width - cw) / 2;
+    const oy = rect.top + (rect.height - ch) / 2;
+    const nx = Math.min(1, Math.max(0, (clientX - ox) / cw));
+    const ny = Math.min(1, Math.max(0, (clientY - oy) / ch));
+    const res = getPlayRes(this.doc);
+    const px = Math.round(nx * res.x);
+    const py = Math.round(ny * res.y);
+    // Replace any existing \pos/\move, then prepend a fresh \pos.
+    const stripped = cue.text.replace(/\\(pos|move)\([^)]*\)/g, "").replace(/\{\}/g, "");
+    cue.text = `{\\pos(${px},${py})}` + stripped;
+    if (this.detailTextarea) this.detailTextarea.value = cue.text;
+    this.refreshRow(cue.id);
+    this.markDirty();
+  }
+
+  // --- fade ----------------------------------------------------------------
+
+  private openFade(cue: Cue, ta: HTMLTextAreaElement): void {
+    this.detailEl.querySelector(".se-fadepop")?.remove();
+    const cur = cue.text.match(/\\fad\((\d+),(\d+)\)/);
+    const pop = el("div", "se-fadepop");
+    const field = (label: string, val: string): { wrap: HTMLElement; input: HTMLInputElement } => {
+      const wrap = el("label", "se-field", label);
+      const input = document.createElement("input");
+      input.type = "number";
+      input.value = val;
+      wrap.appendChild(input);
+      return { wrap, input };
+    };
+    const fin = field(t("fadeIn"), cur?.[1] ?? "200");
+    const fout = field(t("fadeOut"), cur?.[2] ?? "200");
+    const apply = document.createElement("button");
+    apply.className = "se-btn";
+    apply.textContent = t("apply");
+    apply.addEventListener("click", () => {
+      const i = parseInt(fin.input.value, 10) || 0;
+      const o = parseInt(fout.input.value, 10) || 0;
+      const stripped = cue.text.replace(/\\fad\([^)]*\)/g, "").replace(/\{\}/g, "");
+      ta.value = `{\\fad(${i},${o})}` + stripped;
+      this.updateCue(cue.id, { text: ta.value }, true);
+      pop.remove();
+    });
+    pop.append(fin.wrap, fout.wrap, apply);
+    this.detailEl.appendChild(pop);
+    fin.input.focus();
   }
 
   private timeField(label: string, value: string, onCommit: (v: string) => void): HTMLElement {
@@ -755,6 +874,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.player?.destroy();
     this.video?.removeEventListener("timeupdate", this.onTimeUpdate);
     this.timeline?.stopPlayheadLoop();
+    if (this.posOverlay) this.exitPosition();
     this.rightEl.textContent = "";
     const host = el("div", "se-playerhost") as HTMLDivElement;
     this.rightEl.appendChild(host);

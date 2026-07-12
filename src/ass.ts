@@ -206,6 +206,15 @@ export function styleNames(doc: SubtitleDoc): string[] {
   return (doc.styles ?? []).map((s) => s.name);
 }
 
+// The script resolution (\pos and drawings are in these coordinates). ASS defaults to
+// 384x288 when unset.
+export function getPlayRes(doc: SubtitleDoc): { x: number; y: number } {
+  const info = doc.assScriptInfo ?? "";
+  const x = parseInt(info.match(/^\s*PlayResX\s*:\s*(\d+)/im)?.[1] ?? "", 10);
+  const y = parseInt(info.match(/^\s*PlayResY\s*:\s*(\d+)/im)?.[1] ?? "", 10);
+  return { x: x || 384, y: y || 288 };
+}
+
 // The pieces of a fresh ASS scaffold, for converting SRT/VTT to ASS.
 export function defaultAssParts(eol: string): { scriptInfo: string; styles: AssStyle[]; tail: string } {
   const scriptInfo = [
