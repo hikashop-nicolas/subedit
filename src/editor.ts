@@ -68,6 +68,7 @@ const ICON = {
   script: svgIcon('<rect x="3" y="2.5" width="10" height="11" rx="1"/><path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3"/>'),
   mic: svgIcon('<rect x="6" y="2" width="4" height="7" rx="2"/><path d="M4 7a4 4 0 0 0 8 0M8 11v2.5M6 13.5h4"/>'),
   fade: svgIcon('<path d="M2 13l5-10v10z" fill="currentColor" stroke="none"/><path d="M14 13L9 3v10z" fill="currentColor" stroke="none" opacity="0.5"/>'),
+  transform: svgIcon('<path d="M12.5 5A5.5 5.5 0 1 0 13 8.5"/><path d="M11 2.5v3h3"/>'),
   save: svgIcon('<path d="M8 2.5v7.5M5 7.5l3 3 3-3M3.5 13h9"/>'),
 };
 
@@ -130,7 +131,8 @@ function injectStyles(): void {
 .se-inbtn.on,.se-posbtn.on{background:var(--se-accent);border-color:var(--se-accent);color:#fff;}
 .se-posoverlay{position:absolute;z-index:5;cursor:crosshair;background:rgba(37,99,235,0.08);box-shadow:inset 0 0 0 2px var(--se-accent);}
 .se-posdone{position:absolute;top:8px;right:8px;cursor:pointer;font:600 12px system-ui;padding:4px 10px;border:1px solid var(--se-accent);border-radius:6px;background:var(--se-accent);color:#fff;}
-.se-fadepop{display:flex;gap:8px;align-items:flex-end;padding:6px;border:1px solid var(--se-border);border-radius:6px;background:var(--se-bg);}
+.se-poshint{position:absolute;bottom:8px;left:0;right:0;text-align:center;font:600 11px system-ui;color:#fff;text-shadow:0 1px 2px #000;pointer-events:none;}
+.se-fadepop{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;padding:6px;border:1px solid var(--se-border);border-radius:6px;background:var(--se-bg);}
 .se-fadepop input{width:70px;}
 .se-empty,.se-noprev{flex:1 1 auto;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--se-muted);}
 .se-noprev{color:#aab;}
@@ -529,6 +531,16 @@ class SubtitleEditor implements SubtitleEditorHandle {
     );
     bar.appendChild(kar);
 
+    // Transform: rotation / scale / spacing / blur.
+    const tr = document.createElement("button");
+    tr.type = "button";
+    tr.className = "se-inbtn";
+    tr.innerHTML = ICON.transform;
+    tr.title = t("transform");
+    tr.addEventListener("mousedown", (e) => e.preventDefault());
+    tr.addEventListener("click", () => this.openTransform(cue, ta));
+    bar.appendChild(tr);
+
     // Alignment: set/replace a leading {\anN} on the line.
     const align = document.createElement("select");
     align.className = "se-inalign";
@@ -599,13 +611,26 @@ class SubtitleEditor implements SubtitleEditorHandle {
     ov.style.top = `${cr.top - rr.top}px`;
     ov.style.width = `${cr.width}px`;
     ov.style.height = `${cr.height}px`;
-    const point = (e: PointerEvent) => {
-      const c = this.doc.cues.find((k) => k.id === this.positionCueId);
+    // Click sets a static \pos; drag turns it into a \move (the line animates from where
+    // you pressed to where you release). The subtitle follows the cursor live during drag.
+    let down: { x: number; y: number; moved: boolean } | null = null;
+    const cur = () => this.doc.cues.find((k) => k.id === this.positionCueId);
+    ov.addEventListener("pointerdown", (e) => {
+      down = { x: e.clientX, y: e.clientY, moved: false };
+      ov.setPointerCapture(e.pointerId);
+      const c = cur();
       if (c) this.setCuePosition(c, e.clientX, e.clientY);
-    };
-    ov.addEventListener("pointerdown", point);
+    });
     ov.addEventListener("pointermove", (e) => {
-      if (e.buttons & 1) point(e);
+      if (!down || !(e.buttons & 1)) return;
+      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) down.moved = true;
+      const c = cur();
+      if (c) this.setCuePosition(c, e.clientX, e.clientY); // live follow
+    });
+    ov.addEventListener("pointerup", (e) => {
+      const c = cur();
+      if (down && down.moved && c) this.setCueMove(c, down.x, down.y, e.clientX, e.clientY);
+      down = null;
     });
     // Explicit "Done" affordance (plus Esc and the toolbar toggle) to leave the mode.
     const done = document.createElement("button");
@@ -613,7 +638,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
     done.textContent = t("done");
     done.addEventListener("pointerdown", (e) => e.stopPropagation());
     done.addEventListener("click", () => this.exitPosition());
-    ov.appendChild(done);
+    const hint = el("div", "se-poshint", t("moveHint"));
+    ov.append(done, hint);
     this.rightEl.appendChild(ov);
     this.posOverlay = ov;
     document.addEventListener("keydown", this.onPosKey, true);
@@ -635,21 +661,34 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.renderDetail();
   }
 
-  private setCuePosition(cue: Cue, clientX: number, clientY: number): void {
-    if (!this.video) return;
+  // Map a viewport point to PlayRes coordinates, or null if outside the picture.
+  private clientToPlayRes(clientX: number, clientY: number): { px: number; py: number } | null {
+    if (!this.video) return null;
     const cr = this.videoContentRect();
     const nx = (clientX - cr.left) / cr.width;
     const ny = (clientY - cr.top) / cr.height;
-    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return; // outside the picture: ignore
+    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return null;
     const res = getPlayRes(this.doc);
-    const px = Math.round(nx * res.x);
-    const py = Math.round(ny * res.y);
-    // Replace any existing \pos/\move, then prepend a fresh \pos.
+    return { px: Math.round(nx * res.x), py: Math.round(ny * res.y) };
+  }
+
+  private applyCueTag(cue: Cue, tag: string): void {
     const stripped = cue.text.replace(/\\(pos|move)\([^)]*\)/g, "").replace(/\{\}/g, "");
-    cue.text = `{\\pos(${px},${py})}` + stripped;
+    cue.text = `{${tag}}` + stripped;
     if (this.detailTextarea) this.detailTextarea.value = cue.text;
     this.refreshRow(cue.id);
     this.markDirty();
+  }
+
+  private setCuePosition(cue: Cue, clientX: number, clientY: number): void {
+    const p = this.clientToPlayRes(clientX, clientY);
+    if (p) this.applyCueTag(cue, `\\pos(${p.px},${p.py})`);
+  }
+
+  private setCueMove(cue: Cue, x1: number, y1: number, x2: number, y2: number): void {
+    const a = this.clientToPlayRes(x1, y1);
+    const b = this.clientToPlayRes(x2, y2);
+    if (a && b) this.applyCueTag(cue, `\\move(${a.px},${a.py},${b.px},${b.py})`);
   }
 
   // --- fade ----------------------------------------------------------------
@@ -682,6 +721,48 @@ class SubtitleEditor implements SubtitleEditorHandle {
     pop.append(fin.wrap, fout.wrap, apply);
     this.detailEl.appendChild(pop);
     fin.input.focus();
+  }
+
+  // Transform popover: rotation (\frz), scale (\fscx/\fscy), spacing (\fsp), blur (\blur).
+  private openTransform(cue: Cue, ta: HTMLTextAreaElement): void {
+    this.detailEl.querySelector(".se-fadepop")?.remove();
+    const get = (re: RegExp, def: string): string => cue.text.match(re)?.[1] ?? def;
+    const pop = el("div", "se-fadepop");
+    const field = (label: string, val: string): HTMLInputElement => {
+      const wrap = el("label", "se-field", label);
+      const input = document.createElement("input");
+      input.type = "number";
+      input.value = val;
+      wrap.appendChild(input);
+      pop.appendChild(wrap);
+      return input;
+    };
+    const frz = field(t("styleAngle"), get(/\\frz(-?[\d.]+)/, "0"));
+    const fscx = field(t("styleScaleX"), get(/\\fscx([\d.]+)/, "100"));
+    const fscy = field(t("styleScaleY"), get(/\\fscy([\d.]+)/, "100"));
+    const fsp = field(t("styleSpacing"), get(/\\fsp(-?[\d.]+)/, "0"));
+    const blur = field(t("blur"), get(/\\blur([\d.]+)/, "0"));
+    const apply = document.createElement("button");
+    apply.className = "se-btn";
+    apply.textContent = t("apply");
+    apply.addEventListener("click", () => {
+      const stripped = cue.text.replace(/\\(frz|fscx|fscy|fsp|blur)-?[\d.]+/g, "").replace(/\{\}/g, "");
+      const tags: string[] = [];
+      const add = (tag: string, v: string, def: number) => {
+        if (v !== "" && parseFloat(v) !== def) tags.push(`\\${tag}${v}`);
+      };
+      add("frz", frz.value, 0);
+      add("fscx", fscx.value, 100);
+      add("fscy", fscy.value, 100);
+      add("fsp", fsp.value, 0);
+      add("blur", blur.value, 0);
+      ta.value = (tags.length ? `{${tags.join("")}}` : "") + stripped;
+      this.updateCue(cue.id, { text: ta.value }, true);
+      pop.remove();
+    });
+    pop.appendChild(apply);
+    this.detailEl.appendChild(pop);
+    frz.focus();
   }
 
   private timeField(label: string, value: string, onCommit: (v: string) => void): HTMLElement {
