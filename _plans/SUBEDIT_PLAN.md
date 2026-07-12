@@ -204,8 +204,14 @@ translate mode (two-column original/translation).
   via decodeAudioData (extractPeaks), best-effort (codecs the browser can't decode,
   e.g. E-AC-3 MKV, show the timeline peak-less). Follow-up: mediabunny/libav peak
   extraction for Dolby/DTS; peak tile caching if needed.
-- **Phase 3, ASS**: round-trip parser with section preservation, style
-  dropdown, libass-styled preview via setSubtitleText.
+- **Phase 3, ASS [DONE]**: src/ass.ts byte-preserving parse/serialize (Script
+  Info / styles / [Fonts] / comments kept verbatim; Dialogue lines rebuilt from
+  fields via the [Events] Format order, so an unedited canonical line round-trips
+  identically; Comment lines kept as notes). Per-cue Style dropdown in the detail
+  editor (names from [V4+ Styles]); format switcher gained ASS with srt/vtt<->ass
+  conversion (\N <-> newline, override tags stripped on downgrade). Live preview
+  sends subtitles.ass to mediaplay, which renders it styled via libass. Follow-up:
+  a Styles editor, richer inline-tag UX.
 - **Phase 4, ASR**: TranscribeBackend interface + Web Speech implementation,
   empty-state generate flow, cue splitting heuristics.
 - **Phase 5, mux export**: "save into video" remux via mediabunny stream copy

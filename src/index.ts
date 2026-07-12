@@ -24,8 +24,10 @@ export {
   visibleText,
   parseTimestamp,
   formatTimestamp,
+  formatAssTime,
   sortCues,
 } from "./cue";
 export { parseSrt, serializeSrt } from "./srt";
 export { parseVtt, serializeVtt } from "./vtt";
+export { parseAss, serializeAss } from "./ass";
 export { parseSubtitles, serializeSubtitles, detectFormat, convertDoc } from "./subtitles";

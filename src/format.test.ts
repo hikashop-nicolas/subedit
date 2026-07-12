@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { parseSrt, serializeSrt } from "./srt";
 import { parseVtt, serializeVtt } from "./vtt";
+import { parseAss, serializeAss } from "./ass";
 import { parseSubtitles, serializeSubtitles, detectFormat, convertDoc } from "./subtitles";
-import { parseTimestamp, formatTimestamp, cps, visibleText } from "./cue";
+import { parseTimestamp, formatTimestamp, formatAssTime, cps, visibleText } from "./cue";
 
 // Golden fixtures are canonically formatted so parse -> serialize is byte-identical.
 const SRT_GOLDEN = [
@@ -104,11 +105,75 @@ describe("VTT", () => {
   });
 });
 
+const ASS_GOLDEN = [
+  "[Script Info]",
+  "; A comment",
+  "Title: Test",
+  "ScriptType: v4.00+",
+  "",
+  "[V4+ Styles]",
+  "Format: Name, Fontname, Fontsize, PrimaryColour, Alignment, Encoding",
+  "Style: Default,Arial,72,&H00FFFFFF,2,1",
+  "Style: Title,Arial,90,&H0000FFFF,8,1",
+  "",
+  "[Events]",
+  "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+  "Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,Hello, world",
+  "Comment: 0,0:00:04.00,0:00:05.00,Default,,0,0,0,,commented out",
+  "Dialogue: 0,0:00:05.50,0:00:08.20,Title,,0,0,0,,{\\i1}Styled{\\i0} line",
+].join("\n");
+
+describe("ASS", () => {
+  it("parses dialogue cues, times, style and text with commas", () => {
+    const doc = parseAss(ASS_GOLDEN);
+    expect(doc.cues).toHaveLength(2); // Comment line is not an editable cue
+    expect(doc.cues[0].startMs).toBe(1000);
+    expect(doc.cues[0].endMs).toBe(4000);
+    expect(doc.cues[0].text).toBe("Hello, world");
+    expect(doc.cues[0].assFields?.Style).toBe("Default");
+    expect(doc.cues[1].startMs).toBe(5500);
+    expect(doc.cues[1].endMs).toBe(8200);
+    expect(doc.cues[1].text).toBe("{\\i1}Styled{\\i0} line");
+    expect(doc.cues[1].assFields?.Style).toBe("Title");
+  });
+  it("collects style names for the picker", () => {
+    expect(parseAss(ASS_GOLDEN).assStyles).toEqual(["Default", "Title"]);
+  });
+  it("keeps the Comment line as a note on the following cue", () => {
+    expect(parseAss(ASS_GOLDEN).cues[1].notesBefore).toContain("Comment: 0,");
+  });
+  it("round-trips byte-for-byte", () => {
+    expect(serializeAss(parseAss(ASS_GOLDEN))).toBe(ASS_GOLDEN);
+  });
+  it("preserves CRLF and BOM", () => {
+    const crlf = ASS_GOLDEN.replace(/\n/g, "\r\n");
+    expect(serializeAss(parseAss(crlf))).toBe(crlf);
+    const bom = "﻿" + ASS_GOLDEN;
+    expect(serializeAss(parseAss(bom))).toBe(bom);
+  });
+  it("re-emits only the edited dialogue line, keeping the rest", () => {
+    const doc = parseAss(ASS_GOLDEN);
+    doc.cues[0].endMs = 4500;
+    const out = serializeAss(doc);
+    expect(out).toContain("0:00:01.00,0:00:04.50,Default");
+    expect(out).toContain("commented out"); // untouched
+    expect(out).toContain("{\\i1}Styled{\\i0} line"); // untouched
+  });
+  it("formats ASS timestamps at centisecond precision", () => {
+    expect(formatAssTime(1000)).toBe("0:00:01.00");
+    expect(formatAssTime(5500)).toBe("0:00:05.50");
+    expect(formatAssTime(3661230)).toBe("1:01:01.23");
+  });
+});
+
 describe("dispatch and conversion", () => {
   it("detects format from extension and content", () => {
     expect(detectFormat("x.vtt", "")).toBe("vtt");
     expect(detectFormat("x.srt", "")).toBe("srt");
+    expect(detectFormat("x.ass", "")).toBe("ass");
+    expect(detectFormat("x.ssa", "")).toBe("ass");
     expect(detectFormat(undefined, "WEBVTT\n\n...")).toBe("vtt");
+    expect(detectFormat(undefined, "[Script Info]\nScriptType: v4.00+")).toBe("ass");
     expect(detectFormat(undefined, "1\n00:00:01,000 --> ...")).toBe("srt");
   });
   it("parses through the dispatcher", () => {
@@ -122,6 +187,22 @@ describe("dispatch and conversion", () => {
     expect(srt.cues[0].identifier).toBeUndefined();
     const out = serializeSubtitles(srt);
     expect(out).toContain("00:00:01,000 --> 00:00:04,000");
+  });
+  it("converts SRT to ASS with a Default style scaffold", () => {
+    const ass = convertDoc(parseSrt(SRT_GOLDEN), "ass");
+    expect(ass.format).toBe("ass");
+    expect(ass.header).toContain("[Events]");
+    expect(ass.cues[0].assFields?.Style).toBe("Default");
+    const out = serializeSubtitles(ass);
+    expect(out).toContain("Dialogue: 0,0:00:01.00,0:00:04.00,Default");
+    // Multi-line SRT text becomes \N in ASS.
+    expect(out).toContain("Second line one\\NSecond line two");
+  });
+  it("converts ASS to SRT stripping override tags", () => {
+    const srt = convertDoc(parseAss(ASS_GOLDEN), "srt");
+    expect(srt.format).toBe("srt");
+    expect(srt.cues[1].text).toBe("Styled line"); // {\\i1}..{\\i0} removed
+    expect(srt.cues[0].assFields).toBeUndefined();
   });
 });
 

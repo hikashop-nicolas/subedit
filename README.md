@@ -1,13 +1,13 @@
 # subedit
 
-A standalone, framework-agnostic, client-side **subtitle editor** for **SRT and VTT**
-(with ASS/SSA, a video/waveform preview and auto-transcription planned). It parses a
-subtitle file into an editable cue list, lets you edit timings and text with live CPS
-and duration feedback, and writes the changes **back into your file byte-for-byte** for
-well-formed files, all in the browser. No server, no upload.
+A standalone, framework-agnostic, client-side **subtitle editor** for **SRT, VTT and
+ASS/SSA** (with auto-transcription and subtitle muxing planned). It parses a subtitle
+file into an editable cue list, lets you edit timings and text with a video/waveform
+preview and live CPS/duration feedback, and writes the changes **back into your file
+byte-for-byte** for well-formed files, all in the browser. No server, no upload.
 
-**[▶ Live demo](https://hikashop-nicolas.github.io/subedit/)** — open an `.srt` or
-`.vtt` file, or start a new one.
+**[▶ Live demo](https://hikashop-nicolas.github.io/subedit/)** — open an `.srt`, `.vtt`
+or `.ass` file, or start a new one.
 
 ```ts
 import { createSubtitleEditor } from "subedit";
@@ -27,8 +27,10 @@ const edited = handle.getText(); // the edited file, serialized in its format
 - **Byte-faithful round-trips.** A well-formed SRT/VTT file parses and re-serializes
   identically: line-ending flavor, BOM, VTT header and NOTE/STYLE/REGION blocks, cue
   identifiers and settings are all preserved. Edited cues are re-serialized canonically.
-- **Format-aware.** SRT and VTT parse/serialize with the correct timestamp form; convert
-  between them from the toolbar.
+- **Format-aware.** SRT, VTT and ASS/SSA parse/serialize with the correct timestamp form;
+  convert between them from the toolbar. ASS keeps its Script Info, styles, fonts and
+  comments byte-for-byte, rebuilding only the Dialogue lines you edit, and surfaces a
+  per-cue **Style** picker.
 - **Cue operations:** add / remove, shift all times, fix overlaps, with CPS warnings.
 - **Timeline** at the bottom: a waveform of the loaded audio with the cues as blocks you
   can drag to move or resize, a ruler and a playhead, click-to-seek and wheel zoom/pan.
@@ -42,13 +44,13 @@ const edited = handle.getText(); // the edited file, serialized in its format
 
 ## Status
 
-Phases 0-2 done: SRT + VTT editing (virtualized list, detail editor, toolbar); the
-embedded mediaplay video/audio preview with cue seek, current-cue highlight and live
-subtitle rendering; and a bottom **timeline** with a waveform, draggable cue blocks
-(move / resize), a ruler, a playhead, click-to-seek and wheel zoom/pan. See
-[`_plans/SUBEDIT_PLAN.md`](_plans/SUBEDIT_PLAN.md) for the rest of the roadmap: ASS
-round-trip, auto-transcription (Web Speech / Whisper), muxing subtitles into the video,
-and Omnitext integration.
+Phases 0-3 done: SRT / VTT / ASS editing (virtualized list, detail editor with a Style
+picker for ASS, toolbar); the embedded mediaplay video/audio preview with cue seek,
+current-cue highlight and live (libass-styled for ASS) subtitle rendering; and a bottom
+**timeline** with a waveform, draggable cue blocks (move / resize), a ruler, a playhead,
+click-to-seek and wheel zoom/pan. See [`_plans/SUBEDIT_PLAN.md`](_plans/SUBEDIT_PLAN.md)
+for the rest of the roadmap: auto-transcription (Web Speech / Whisper), muxing subtitles
+into the video, and Omnitext integration.
 
 ## API
 

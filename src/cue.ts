@@ -4,23 +4,27 @@
 // NOTE/STYLE/REGION blocks, cue identifiers and settings) that a well-formed file
 // round-trips byte-for-byte. Edited cues are re-serialized in canonical form.
 
-export type SubtitleFormat = "srt" | "vtt";
+export type SubtitleFormat = "srt" | "vtt" | "ass";
 
 export interface Cue {
   // Ephemeral id for the UI (list keys, selection). NOT persisted to the file.
   id: string;
   startMs: number;
   endMs: number;
-  // Cue text; embedded newlines separate displayed lines. Inline markup
-  // (<i>, {\an8}, ...) is kept verbatim in v1, no WYSIWYG.
+  // Cue text; for SRT/VTT embedded newlines separate lines. For ASS this is the raw
+  // Text field (with \N breaks and {\...} override tags), kept verbatim (no WYSIWYG).
   text: string;
   // VTT optional identifier line preceding the timings (or undefined).
   identifier?: string;
   // Trailing tokens after the timestamps: VTT cue settings, or SRT position coords.
   settings?: string;
-  // Raw NOTE/STYLE/REGION block(s) that immediately precede this cue, verbatim,
-  // so VTT metadata travels with its following cue across edits.
+  // Raw NOTE/STYLE/REGION (VTT) or Comment/;/font (ASS) block(s) immediately preceding
+  // this cue, verbatim, so metadata travels with its following cue across edits.
   notesBefore?: string;
+  // ASS event kind (always "Dialogue" for editable cues; "Comment" lines are kept as
+  // notes) and the non-time/text Event fields keyed by their Format name (Layer, Style,
+  // Name, MarginL/R/V, Effect, ...), preserved and re-emitted in the file's field order.
+  assFields?: Record<string, string>;
 }
 
 export interface SubtitleDoc {
@@ -29,10 +33,14 @@ export interface SubtitleDoc {
   eol: "\n" | "\r\n";
   bom: boolean;
   finalNewline: boolean;
-  // VTT: the "WEBVTT..." preamble up to the first blank line, verbatim. SRT: undefined.
+  // VTT: the "WEBVTT..." preamble up to the first blank line, verbatim. ASS: everything
+  // up to and including the [Events] Format line, verbatim. SRT: undefined.
   header?: string;
-  // Raw blocks after the last cue (VTT NOTE/STYLE), verbatim.
+  // Raw blocks after the last cue (VTT NOTE/STYLE, ASS [Fonts]/trailing), verbatim.
   trailingNotes?: string;
+  // ASS: the [Events] Format field names in order, and the style names (for the picker).
+  assFormat?: string[];
+  assStyles?: string[];
 }
 
 let idSeq = 0;
@@ -81,8 +89,21 @@ export function visibleText(text: string): string {
   return text
     .replace(/<[^>]*>/g, "") // <i>, <b>, <c.class>, ...
     .replace(/\{[^}]*\}/g, "") // ASS-style override tags if present
+    .replace(/\\[Nnh]/g, " ") // ASS line breaks (\N, \n) and hard space (\h)
     .replace(/\s+/g, " ")
     .trim();
+}
+
+// ASS timestamp: "H:MM:SS.cc" (1-digit hour, centisecond precision).
+export function formatAssTime(ms: number): string {
+  const totalCs = Math.round(Math.max(0, ms) / 10); // whole value in centiseconds
+  const cs = totalCs % 100;
+  const totalSeconds = Math.floor(totalCs / 100);
+  const s = totalSeconds % 60;
+  const m = Math.floor(totalSeconds / 60) % 60;
+  const h = Math.floor(totalSeconds / 3600);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${h}:${p(m)}:${p(s)}.${p(cs)}`;
 }
 
 // Characters per second over the cue's on-screen duration (0 if zero-length).

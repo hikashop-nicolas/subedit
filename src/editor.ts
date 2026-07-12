@@ -173,7 +173,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
     const fmt = document.createElement("select");
     fmt.className = "se-btn";
-    for (const f of ["srt", "vtt"] as SubtitleFormat[]) {
+    for (const f of ["srt", "vtt", "ass"] as SubtitleFormat[]) {
       const o = document.createElement("option");
       o.value = f;
       o.textContent = f.toUpperCase();
@@ -331,7 +331,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   }
 
   private fillRow(row: HTMLDivElement, cue: Cue, index: number): void {
-    const sep = this.doc.format === "vtt" ? "." : ",";
+    const sep = this.doc.format === "srt" ? "," : ".";
     (row.children[0] as HTMLElement).textContent = String(index + 1);
     (row.children[1] as HTMLElement).textContent = formatTimestamp(cue.startMs, sep);
     (row.children[2] as HTMLElement).textContent = formatTimestamp(cue.endMs, sep);
@@ -381,7 +381,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
       this.detailEl.appendChild(el("div", "se-count", t("selectCue")));
       return;
     }
-    const sep = this.doc.format === "vtt" ? "." : ",";
+    const sep = this.doc.format === "srt" ? "," : ".";
     const times = el("div", "se-times");
     times.appendChild(
       this.timeField(t("start"), formatTimestamp(cue.startMs, sep), (v) => {
@@ -401,6 +401,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
         if (!Number.isNaN(secs)) this.updateCue(cue.id, { endMs: cue.startMs + Math.round(secs * 1000) });
       }),
     );
+    if (this.doc.format === "ass") times.appendChild(this.styleField(cue));
     this.detailEl.appendChild(times);
 
     const ta = document.createElement("textarea");
@@ -418,6 +419,30 @@ class SubtitleEditor implements SubtitleEditorHandle {
     input.addEventListener("change", commit);
     input.addEventListener("blur", commit);
     wrap.appendChild(input);
+    return wrap;
+  }
+
+  // ASS style picker for the selected cue: the file's style names, plus the cue's own
+  // style if the file didn't declare it. Writing sets the cue's Style Event field.
+  private styleField(cue: Cue): HTMLElement {
+    const wrap = el("label", "se-field se-stylefield", t("style"));
+    const select = document.createElement("select");
+    const current = cue.assFields?.Style ?? "Default";
+    const names = this.doc.assStyles?.length ? [...this.doc.assStyles] : ["Default"];
+    if (!names.includes(current)) names.unshift(current);
+    for (const name of names) {
+      const o = document.createElement("option");
+      o.value = name;
+      o.textContent = name;
+      select.appendChild(o);
+    }
+    select.value = current;
+    select.addEventListener("change", () => {
+      (cue.assFields ??= {}).Style = select.value;
+      this.refreshRow(cue.id);
+      this.markDirty();
+    });
+    wrap.appendChild(select);
     return wrap;
   }
 
