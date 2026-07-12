@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>subedit demo</title>
+    <style>
+      html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
+      #app { display: flex; flex-direction: column; height: 100%; }
+      header { padding: 8px 12px; border-bottom: 1px solid #e4e6eb; display: flex; gap: 12px; align-items: center; }
+      header b { font-size: 14px; }
+      header label { font-size: 13px; color: #444; cursor: pointer; }
+      #editor { flex: 1 1 auto; min-height: 0; }
+      @media (prefers-color-scheme: dark) {
+        header { background: #25272c; border-color: #33353b; color: #e6e7ea; }
+        header label { color: #cfd2d8; }
+        body { background: #1c1d21; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <b>subedit</b>
+        <label>Open subtitles <input id="file" type="file" accept=".srt,.vtt" /></label>
+        <button id="new">New empty file</button>
+        <span style="color:#889;font-size:12px">everything stays in your browser</span>
+      </header>
+      <div id="editor"></div>
+    </div>
+    <script type="module" src="./demo.ts"></script>
+  </body>
+</html>
