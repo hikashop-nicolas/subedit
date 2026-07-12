@@ -66,6 +66,8 @@ const ICON = {
   overlaps: svgIcon('<rect x="2.5" y="3.5" width="7" height="4" rx="1"/><rect x="6.5" y="8.5" width="7" height="4" rx="1"/>'),
   styles: svgIcon('<path d="M5 3.5h6M8 3.5v9M5.5 12.5h5"/><path d="M11.5 8.5l2-2 1.5 1.5-2 2z"/>'),
   script: svgIcon('<rect x="3" y="2.5" width="10" height="11" rx="1"/><path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3"/>'),
+  mic: svgIcon('<rect x="6" y="2" width="4" height="7" rx="2"/><path d="M4 7a4 4 0 0 0 8 0M8 11v2.5M6 13.5h4"/>'),
+  fade: svgIcon('<path d="M2 13l5-10v10z" fill="currentColor" stroke="none"/><path d="M14 13L9 3v10z" fill="currentColor" stroke="none" opacity="0.5"/>'),
   save: svgIcon('<path d="M8 2.5v7.5M5 7.5l3 3 3-3M3.5 13h9"/>'),
 };
 
@@ -126,7 +128,8 @@ function injectStyles(): void {
 .se-incolor{width:26px;height:24px;padding:0;border:1px solid var(--se-border);border-radius:5px;background:none;cursor:pointer;}
 .se-inalign{font:inherit;height:24px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);}
 .se-inbtn.on,.se-posbtn.on{background:var(--se-accent);border-color:var(--se-accent);color:#fff;}
-.se-posoverlay{position:absolute;inset:0;z-index:5;cursor:crosshair;background:rgba(37,99,235,0.08);box-shadow:inset 0 0 0 2px var(--se-accent);}
+.se-posoverlay{position:absolute;z-index:5;cursor:crosshair;background:rgba(37,99,235,0.08);box-shadow:inset 0 0 0 2px var(--se-accent);}
+.se-posdone{position:absolute;top:8px;right:8px;cursor:pointer;font:600 12px system-ui;padding:4px 10px;border:1px solid var(--se-accent);border-radius:6px;background:var(--se-accent);color:#fff;}
 .se-fadepop{display:flex;gap:8px;align-items:flex-end;padding:6px;border:1px solid var(--se-border);border-radius:6px;background:var(--se-bg);}
 .se-fadepop input{width:70px;}
 .se-empty,.se-noprev{flex:1 1 auto;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--se-muted);}
@@ -167,6 +170,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private detailTextarea: HTMLTextAreaElement | null = null;
   private posOverlay: HTMLDivElement | null = null;
   private positionCueId: string | null = null;
+  private wavePeaks: { peaks: Float32Array; peaksPerSec: number } | null = null;
   private rows = new Map<string, HTMLDivElement>();
   private rafPending = false;
   private subtitleTimer = 0;
@@ -504,21 +508,21 @@ class SubtitleEditor implements SubtitleEditorHandle {
     const fade = document.createElement("button");
     fade.type = "button";
     fade.className = "se-inbtn";
-    fade.textContent = t("fade");
+    fade.innerHTML = ICON.fade;
     fade.title = t("fade");
     fade.addEventListener("mousedown", (e) => e.preventDefault());
     fade.addEventListener("click", () => this.openFade(cue, ta));
     bar.appendChild(fade);
 
-    // Karaoke: syllable timing (\k).
+    // Karaoke: syllable timing (\kf).
     const kar = document.createElement("button");
     kar.type = "button";
     kar.className = "se-inbtn";
-    kar.textContent = "K";
+    kar.innerHTML = ICON.mic;
     kar.title = t("karaoke");
     kar.addEventListener("mousedown", (e) => e.preventDefault());
     kar.addEventListener("click", () =>
-      openKaraoke(cue, (text) => {
+      openKaraoke(cue, this.video ?? null, this.wavePeaks, (text) => {
         ta.value = text;
         this.updateCue(cue.id, { text }, true);
       }),
@@ -564,6 +568,18 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
   // --- position picker (\pos via clicking the preview) ---------------------
 
+  // The video's on-screen content box (accounting for letterbox), in viewport coords.
+  private videoContentRect(): { left: number; top: number; width: number; height: number } {
+    const rect = this.video!.getBoundingClientRect();
+    const vid = this.video as HTMLVideoElement;
+    const vW = vid.videoWidth || rect.width;
+    const vH = vid.videoHeight || rect.height;
+    const scale = Math.min(rect.width / vW, rect.height / vH) || 1;
+    const width = vW * scale;
+    const height = vH * scale;
+    return { left: rect.left + (rect.width - width) / 2, top: rect.top + (rect.height - height) / 2, width, height };
+  }
+
   private togglePosition(cue: Cue): void {
     if (this.posOverlay) {
       this.exitPosition();
@@ -576,6 +592,13 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.positionCueId = cue.id;
     const ov = el("div", "se-posoverlay") as HTMLDivElement;
     ov.title = t("positionPick");
+    // Cover only the video's content box so only clicks on the picture set a position.
+    const cr = this.videoContentRect();
+    const rr = this.rightEl.getBoundingClientRect();
+    ov.style.left = `${cr.left - rr.left}px`;
+    ov.style.top = `${cr.top - rr.top}px`;
+    ov.style.width = `${cr.width}px`;
+    ov.style.height = `${cr.height}px`;
     const point = (e: PointerEvent) => {
       const c = this.doc.cues.find((k) => k.id === this.positionCueId);
       if (c) this.setCuePosition(c, e.clientX, e.clientY);
@@ -584,12 +607,28 @@ class SubtitleEditor implements SubtitleEditorHandle {
     ov.addEventListener("pointermove", (e) => {
       if (e.buttons & 1) point(e);
     });
+    // Explicit "Done" affordance (plus Esc and the toolbar toggle) to leave the mode.
+    const done = document.createElement("button");
+    done.className = "se-posdone";
+    done.textContent = t("done");
+    done.addEventListener("pointerdown", (e) => e.stopPropagation());
+    done.addEventListener("click", () => this.exitPosition());
+    ov.appendChild(done);
     this.rightEl.appendChild(ov);
     this.posOverlay = ov;
+    document.addEventListener("keydown", this.onPosKey, true);
     this.renderDetail(); // highlight the toggle
   }
 
+  private onPosKey = (e: KeyboardEvent): void => {
+    if (e.key === "Escape" && this.posOverlay) {
+      e.preventDefault();
+      this.exitPosition();
+    }
+  };
+
   private exitPosition(): void {
+    document.removeEventListener("keydown", this.onPosKey, true);
     this.posOverlay?.remove();
     this.posOverlay = null;
     this.positionCueId = null;
@@ -598,17 +637,10 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
   private setCuePosition(cue: Cue, clientX: number, clientY: number): void {
     if (!this.video) return;
-    const rect = this.video.getBoundingClientRect();
-    const vid = this.video as HTMLVideoElement;
-    const vW = vid.videoWidth || rect.width;
-    const vH = vid.videoHeight || rect.height;
-    const scale = Math.min(rect.width / vW, rect.height / vH) || 1;
-    const cw = vW * scale;
-    const ch = vH * scale;
-    const ox = rect.left + (rect.width - cw) / 2;
-    const oy = rect.top + (rect.height - ch) / 2;
-    const nx = Math.min(1, Math.max(0, (clientX - ox) / cw));
-    const ny = Math.min(1, Math.max(0, (clientY - oy) / ch));
+    const cr = this.videoContentRect();
+    const nx = (clientX - cr.left) / cr.width;
+    const ny = (clientY - cr.top) / cr.height;
+    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return; // outside the picture: ignore
     const res = getPlayRes(this.doc);
     const px = Math.round(nx * res.x);
     const py = Math.round(ny * res.y);
@@ -932,6 +964,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.waveAbort?.abort();
     const ac = new AbortController();
     this.waveAbort = ac;
+    this.wavePeaks = null;
     this.timeline?.clearPeaks();
     this.setWaveStatus(t("extractingWave"));
     try {
@@ -942,7 +975,10 @@ class SubtitleEditor implements SubtitleEditorHandle {
         onProgress: (r) => this.setWaveStatus(`${t("extractingWave")} ${Math.round(r * 100)}%`),
       });
       if (ac.signal.aborted) return;
-      if (result?.peaks.length) this.timeline?.setPeaks(result.peaks, result.peaksPerSec);
+      if (result?.peaks.length) {
+        this.wavePeaks = result;
+        this.timeline?.setPeaks(result.peaks, result.peaksPerSec);
+      }
     } catch {
       /* leave the timeline peak-less */
     } finally {
@@ -1073,6 +1109,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   }
   destroy(): void {
     window.clearTimeout(this.subtitleTimer);
+    document.removeEventListener("keydown", this.onPosKey, true);
     this.waveAbort?.abort();
     this.video?.removeEventListener("timeupdate", this.onTimeUpdate);
     this.timeline?.destroy();

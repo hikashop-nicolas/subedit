@@ -249,6 +249,8 @@ export class Timeline {
       ctx.lineWidth = sel ? 2 : 1;
       roundRect(ctx, x0, top, w, bottom - top, 3);
       ctx.stroke();
+      // Karaoke syllable divisions (\k / \kf) and fade (\fad) triangles, for ASS cues.
+      this.drawCueMarks(c, x0, x1, top, bottom);
       // Label, clipped to the block.
       if (w > 24) {
         ctx.save();
@@ -260,6 +262,59 @@ export class Timeline {
         ctx.restore();
       }
     }
+  }
+
+  // Fade-in/out triangles and karaoke syllable boundaries drawn inside a cue's block.
+  private drawCueMarks(c: Cue, x0: number, x1: number, top: number, bottom: number): void {
+    if (c.assKind === undefined || !c.text.includes("\\")) return;
+    const ctx = this.ctx;
+    const durMs = c.endMs - c.startMs || 1;
+    const pxPerMs = (x1 - x0) / durMs;
+    // Karaoke boundaries.
+    const kRe = /\\k[fo]?(\d+)/g;
+    let m: RegExpExecArray | null;
+    let cumMs = 0;
+    let any = false;
+    ctx.strokeStyle = this.pal.cueSel;
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = 1;
+    while ((m = kRe.exec(c.text))) {
+      cumMs += (parseInt(m[1], 10) || 0) * 10;
+      const x = x0 + cumMs * pxPerMs;
+      if (x > x0 && x < x1) {
+        ctx.beginPath();
+        ctx.moveTo(x, top + 2);
+        ctx.lineTo(x, bottom - 2);
+        ctx.stroke();
+      }
+      any = true;
+    }
+    ctx.globalAlpha = 1;
+    if (any) return; // don't clutter a karaoke block with fade triangles too
+    // Fade triangles.
+    const fad = c.text.match(/\\fad\((\d+),(\d+)\)/);
+    if (!fad) return;
+    ctx.fillStyle = this.pal.cueSel;
+    ctx.globalAlpha = 0.35;
+    const inW = Math.min(x1 - x0, parseInt(fad[1], 10) * pxPerMs);
+    const outW = Math.min(x1 - x0, parseInt(fad[2], 10) * pxPerMs);
+    if (inW > 1) {
+      ctx.beginPath();
+      ctx.moveTo(x0, bottom);
+      ctx.lineTo(x0 + inW, bottom);
+      ctx.lineTo(x0, top);
+      ctx.closePath();
+      ctx.fill();
+    }
+    if (outW > 1) {
+      ctx.beginPath();
+      ctx.moveTo(x1, bottom);
+      ctx.lineTo(x1 - outW, bottom);
+      ctx.lineTo(x1, top);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
 
   private drawPlayhead(): void {
