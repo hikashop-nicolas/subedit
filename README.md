@@ -30,6 +30,8 @@ const edited = handle.getText(); // the edited file, serialized in its format
 - **Format-aware.** SRT and VTT parse/serialize with the correct timestamp form; convert
   between them from the toolbar.
 - **Cue operations:** add / remove, shift all times, fix overlaps, with CPS warnings.
+- **Timeline** at the bottom: a waveform of the loaded audio with the cues as blocks you
+  can drag to move or resize, a ruler and a playhead, click-to-seek and wheel zoom/pan.
 - **Preview.** Load a video or audio file to preview alongside the subtitles, powered by
   an embedded [mediaplay](https://github.com/hikashop-nicolas/mediaplay) player (MKV and
   legacy containers, Dolby/DTS audio decode, libass ASS rendering). Double-click a cue to
@@ -40,11 +42,13 @@ const edited = handle.getText(); // the edited file, serialized in its format
 
 ## Status
 
-Phases 0-1 done: SRT + VTT editing (virtualized list, detail editor, toolbar) and the
+Phases 0-2 done: SRT + VTT editing (virtualized list, detail editor, toolbar); the
 embedded mediaplay video/audio preview with cue seek, current-cue highlight and live
-subtitle rendering. See [`_plans/SUBEDIT_PLAN.md`](_plans/SUBEDIT_PLAN.md) for the rest of
-the roadmap: waveform timeline, ASS round-trip, auto-transcription (Web Speech / Whisper),
-muxing subtitles into the video, and Omnitext integration.
+subtitle rendering; and a bottom **timeline** with a waveform, draggable cue blocks
+(move / resize), a ruler, a playhead, click-to-seek and wheel zoom/pan. See
+[`_plans/SUBEDIT_PLAN.md`](_plans/SUBEDIT_PLAN.md) for the rest of the roadmap: ASS
+round-trip, auto-transcription (Web Speech / Whisper), muxing subtitles into the video,
+and Omnitext integration.
 
 ## API
 

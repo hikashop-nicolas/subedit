@@ -198,7 +198,12 @@ translate mode (two-column original/translation).
   button, double-click-cue seek, current-cue highlight on timeupdate, live
   subtitle re-push on edit (300ms debounced), space/arrows keyboard model.
   handle.loadPreviewMedia(file) added for programmatic loading (ASR flow).
-- **Phase 2, waveform**: PCM extraction, peak tiles, seek/zoom/drag retiming.
+- **Phase 2, waveform [DONE]**: bottom canvas timeline (src/waveform.ts) with cue
+  blocks, time ruler and playhead; click to seek, wheel to zoom (deltaY) / pan
+  (deltaX / shift), drag a cue body to move or its edges to retime; waveform peaks
+  via decodeAudioData (extractPeaks), best-effort (codecs the browser can't decode,
+  e.g. E-AC-3 MKV, show the timeline peak-less). Follow-up: mediabunny/libav peak
+  extraction for Dolby/DTS; peak tile caching if needed.
 - **Phase 3, ASS**: round-trip parser with section preservation, style
   dropdown, libass-styled preview via setSubtitleText.
 - **Phase 4, ASR**: TranscribeBackend interface + Web Speech implementation,

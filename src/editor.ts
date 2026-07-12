@@ -19,7 +19,12 @@ import {
 } from "./cue";
 import { parseSubtitles, serializeSubtitles, convertDoc } from "./subtitles";
 import { setLocale, t } from "./i18n";
+import { Timeline, extractPeaks } from "./waveform";
 import { createMediaPlayer, type MediaPlayerHandle } from "mediaplay";
+
+// decodeAudioData holds the whole decoded PCM in RAM, so only attempt waveform
+// extraction on reasonably small files; larger media shows the timeline without peaks.
+const MAX_DECODE_BYTES = 100 * 1024 * 1024;
 
 export interface SubtitleInput {
   text: string;
@@ -59,7 +64,6 @@ const ICON = {
   remove: svgIcon('<path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.4 8.5h6.2l.4-8.5"/>'),
   shift: svgIcon('<circle cx="8" cy="8" r="5.5"/><path d="M8 5v3.2l2.2 1.3"/>'),
   overlaps: svgIcon('<rect x="2.5" y="3.5" width="7" height="4" rx="1"/><rect x="6.5" y="8.5" width="7" height="4" rx="1"/>'),
-  video: svgIcon('<rect x="2" y="4" width="12" height="8" rx="1.5"/><path d="M6.6 6.7v2.6L9.2 8z" fill="currentColor" stroke="none"/>'),
   save: svgIcon('<path d="M8 2.5v7.5M5 7.5l3 3 3-3M3.5 13h9"/>'),
 };
 
@@ -106,6 +110,8 @@ function injectStyles(): void {
 .se-noprev{color:#aab;}
 .se-empty h3{margin:0;color:var(--se-fg);font-size:15px;}
 .se-playerhost{flex:1 1 auto;min-height:0;width:100%;height:100%;}
+.se-timeline-wrap{flex:0 0 auto;border-top:1px solid var(--se-border);background:var(--se-head);}
+.se-timeline{touch-action:none;cursor:crosshair;}
 @media (prefers-color-scheme: dark){
 .se-root{--se-bg:#1c1d21;--se-fg:#e6e7ea;--se-muted:#9aa0aa;--se-border:#33353b;--se-sel:#1e3a5f;--se-sel-fg:#eaf2ff;--se-head:#25272c;--se-warn:#f59e0b;--se-bad:#f87171;--se-accent:#60a5fa;}
 }
@@ -129,6 +135,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private rightEl!: HTMLDivElement;
   private player: MediaPlayerHandle | null = null;
   private video: HTMLMediaElement | null = null;
+  private timeline: Timeline | null = null;
   private rows = new Map<string, HTMLDivElement>();
   private rafPending = false;
   private subtitleTimer = 0;
@@ -177,8 +184,6 @@ class SubtitleEditor implements SubtitleEditorHandle {
     fmt.addEventListener("change", () => this.setFormat(fmt.value as SubtitleFormat));
     bar.appendChild(fmt);
 
-    bar.appendChild(this.iconButton(ICON.video, t("loadVideo"), () => this.pickVideo()));
-
     const sp = el("span", "se-sp");
     bar.appendChild(sp);
 
@@ -223,6 +228,33 @@ class SubtitleEditor implements SubtitleEditorHandle {
     body.appendChild(left);
     body.appendChild(this.rightEl);
     this.root.appendChild(body);
+
+    // Bottom timeline: cue blocks + waveform + playhead, spanning the full width.
+    const strip = el("div", "se-timeline-wrap");
+    this.root.appendChild(strip);
+    this.timeline = new Timeline({
+      getCues: () => this.doc.cues,
+      getDuration: () => this.video?.duration ?? 0,
+      getCurrentTime: () => this.video?.currentTime ?? 0,
+      getSelectedId: () => this.selectedId,
+      onSeek: (sec) => this.seekTo(sec * 1000),
+      onSelectCue: (id) => this.select(id),
+      onRetime: (id, startMs, endMs, commit) => this.retimeCue(id, startMs, endMs, commit),
+    });
+    this.timeline.mount(strip);
+  }
+
+  // Drag-retime from the timeline: update the cue live, commit (push + onChange) on release.
+  private retimeCue(id: string, startMs: number, endMs: number, commit: boolean): void {
+    const cue = this.doc.cues.find((c) => c.id === id);
+    if (!cue) return;
+    cue.startMs = startMs;
+    cue.endMs = endMs;
+    this.refreshRow(id);
+    if (commit) {
+      if (id === this.selectedId) this.renderDetail();
+      this.markDirty();
+    }
   }
 
   // --- cue list (virtualized) ----------------------------------------------
@@ -241,6 +273,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.countEl.textContent = t("cueCount", { n: this.doc.cues.length });
     this.renderWindow();
     if (this.doc.cues.length === 0) this.renderEmptyList();
+    this.timeline?.render();
   }
 
   private renderEmptyList(): void {
@@ -293,7 +326,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     row.appendChild(el("div", "se-cell se-cps"));
     row.appendChild(el("div", "se-cell se-text"));
     row.addEventListener("click", () => this.select(cue.id));
-    row.addEventListener("dblclick", () => this.seekTo(cue.startMs));
+    row.addEventListener("dblclick", () => this.seekTo(cue.startMs, true));
     return row;
   }
 
@@ -328,6 +361,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.refreshRow(id);
     this.scrollSelectedIntoView();
     this.renderDetail();
+    this.timeline?.render();
   }
 
   private scrollSelectedIntoView(): void {
@@ -394,6 +428,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     if (!cue) return;
     Object.assign(cue, patch);
     this.refreshRow(id);
+    this.timeline?.render();
     // Editing the text area should not re-render the detail (it would drop the caret).
     if (!fromText) this.renderDetail();
     this.markDirty();
@@ -509,14 +544,45 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private async loadVideo(file: File): Promise<void> {
     this.player?.destroy();
     this.video?.removeEventListener("timeupdate", this.onTimeUpdate);
+    this.timeline?.stopPlayheadLoop();
     this.rightEl.textContent = "";
     const host = el("div", "se-playerhost") as HTMLDivElement;
     this.rightEl.appendChild(host);
     const bytes = new Uint8Array(await file.arrayBuffer());
     this.player = createMediaPlayer(host, { bytes, mime: file.type, filename: file.name }, { embedded: true });
-    this.video = this.player.getMediaElement() ?? null;
-    this.video?.addEventListener("timeupdate", this.onTimeUpdate);
+    const v = this.player.getMediaElement() ?? null;
+    this.video = v;
+    if (v) {
+      v.addEventListener("timeupdate", this.onTimeUpdate);
+      v.addEventListener("loadedmetadata", () => {
+        this.timeline?.fitAll();
+        this.timeline?.render();
+      });
+      v.addEventListener("play", () => this.timeline?.startPlayheadLoop());
+      v.addEventListener("pause", () => {
+        this.timeline?.stopPlayheadLoop();
+        this.timeline?.render();
+      });
+      v.addEventListener("seeked", () => this.timeline?.render());
+    }
     this.pushSubtitles();
+    if (bytes.length <= MAX_DECODE_BYTES) void this.extractWaveform(bytes);
+    else this.timeline?.clearPeaks();
+  }
+
+  // Decode the media's audio to a waveform. decodeAudioData handles browser-decodable
+  // audio (mp3/wav/m4a/ogg/webm and audio in some containers); codecs it can't decode
+  // (e.g. E-AC-3 in MKV) leave the timeline peak-less, which is fine.
+  private async extractWaveform(bytes: Uint8Array): Promise<void> {
+    try {
+      const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ctx = new AC();
+      const buffer = await ctx.decodeAudioData(bytes.slice().buffer);
+      void ctx.close();
+      this.timeline?.setPeaks(extractPeaks(buffer));
+    } catch {
+      this.timeline?.clearPeaks();
+    }
   }
 
   // Feed the current (serialized) document to the preview so it renders the live edits.
@@ -540,10 +606,11 @@ class SubtitleEditor implements SubtitleEditorHandle {
     if (id) this.refreshRow(id);
   };
 
-  private seekTo(ms: number): void {
+  private seekTo(ms: number, play = false): void {
     if (this.video) {
       this.video.currentTime = ms / 1000;
-      void this.video.play().catch(() => {});
+      if (play) void this.video.play().catch(() => {});
+      else this.timeline?.render();
     }
   }
 
@@ -635,6 +702,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
   destroy(): void {
     window.clearTimeout(this.subtitleTimer);
     this.video?.removeEventListener("timeupdate", this.onTimeUpdate);
+    this.timeline?.destroy();
+    this.timeline = null;
     this.player?.destroy();
     this.player = null;
     this.root.remove();
