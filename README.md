@@ -30,10 +30,13 @@ const edited = handle.getText(); // the edited file, serialized in its format
 - **Format-aware.** SRT, VTT and ASS/SSA parse/serialize with the correct timestamp form;
   convert between them from the toolbar. ASS keeps its Script Info, styles, fonts and
   comments byte-for-byte, rebuilding only the lines you edit.
-- **ASS styling.** A per-cue **Style** picker, a **styles editor** to create / edit /
-  duplicate / delete style definitions (font, size, fill/outline colour, bold/italic/
-  underline, alignment), and an **inline-formatting toolbar** that wraps the selected text
-  in the matching override tags (bold, italic, underline, colour, position).
+- **ASS styling and effects.** A per-cue **Style** picker and a **styles editor** to
+  create / edit / duplicate / delete style definitions (font with a used-fonts list, size,
+  fill/karaoke/outline/shadow colours, bold/italic/underline/strikeout, scale, spacing,
+  angle, border style, margins, encoding). Per-cue fields for actor, effect, layer,
+  margins, and a **disable (comment)** toggle. An **inline toolbar** for bold/italic/
+  underline/colour, a **position picker** (click the preview to set `\pos`), **fade** and
+  **karaoke** (`\k`) editors, and a **script-properties** panel (PlayRes, wrap, title).
 - **Cue operations:** add / remove, shift all times, fix overlaps, with CPS warnings.
 - **Timeline** at the bottom: a waveform of the loaded audio with the cues as blocks you
   can drag to move or resize, a ruler and a playhead, click-to-seek and wheel zoom/pan.

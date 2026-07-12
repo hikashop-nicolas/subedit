@@ -205,13 +205,16 @@ translate mode (two-column original/translation).
   incl. E-AC-3/DTS, no file-size cap), shown with an "extracting" progress label
   and aborted when another file loads.
 - **Phase 3, ASS [DONE]**: src/ass.ts byte-preserving parse/serialize (Script
-  Info / styles / [Fonts] / comments kept verbatim; Dialogue lines rebuilt from
-  fields via the [Events] Format order, so an unedited canonical line round-trips
-  identically; Comment lines kept as notes). Per-cue Style dropdown in the detail
-  editor (names from [V4+ Styles]); format switcher gained ASS with srt/vtt<->ass
-  conversion (\N <-> newline, override tags stripped on downgrade). Live preview
-  sends subtitles.ass to mediaplay, which renders it styled via libass. Follow-up:
-  a Styles editor, richer inline-tag UX.
+  Info / styles / [Fonts] kept verbatim; Dialogue AND Comment lines parsed as cues
+  and rebuilt from fields via the section Format order, so an unedited canonical
+  line round-trips identically). Format switcher gained ASS with srt/vtt<->ass
+  conversion. Live preview renders styled ASS via libass (mediaplay). Extended ASS
+  editing shipped: full styles editor (create/edit/dup/delete, all common fields,
+  font datalist), per-cue Style picker + Edit button, per-cue actor/effect/layer/
+  margins + Comment(disable) toggle, inline B/I/U/colour, position picker (\pos via
+  clicking the preview), fade (\fad), karaoke (\k) editor, script-properties panel.
+  Word-based alignment labels. FUTURE (not built): animation (\t), vector drawings
+  (\p) / clip, blur (\blur/\be), decoding embedded [Fonts] to real font names.
 - **Phase 4, ASR**: TranscribeBackend interface + Web Speech implementation,
   empty-state generate flow, cue splitting heuristics.
 - **Phase 5, mux export**: "save into video" remux via mediabunny stream copy
