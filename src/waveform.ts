@@ -274,7 +274,6 @@ export class Timeline {
     const kRe = /\\k[fo]?(\d+)/g;
     let m: RegExpExecArray | null;
     let cumMs = 0;
-    let any = false;
     ctx.strokeStyle = this.pal.cueSel;
     ctx.globalAlpha = 0.5;
     ctx.lineWidth = 1;
@@ -287,11 +286,9 @@ export class Timeline {
         ctx.lineTo(x, bottom - 2);
         ctx.stroke();
       }
-      any = true;
     }
     ctx.globalAlpha = 1;
-    if (any) return; // don't clutter a karaoke block with fade triangles too
-    // Fade triangles.
+    // Fade triangles (drawn alongside any karaoke divisions).
     const fad = c.text.match(/\\fad\((\d+),(\d+)\)/);
     if (!fad) return;
     ctx.fillStyle = this.pal.cueSel;
