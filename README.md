@@ -30,19 +30,21 @@ const edited = handle.getText(); // the edited file, serialized in its format
 - **Format-aware.** SRT and VTT parse/serialize with the correct timestamp form; convert
   between them from the toolbar.
 - **Cue operations:** add / remove, shift all times, fix overlaps, with CPS warnings.
-- **Preview.** Load a video or audio file to preview alongside the subtitles: double-click
-  a cue to seek, and the currently-playing cue highlights. (A later phase swaps in the
-  [mediaplay](https://github.com/hikashop-nicolas/mediaplay) embed for full-format
-  playback and live subtitle rendering.)
+- **Preview.** Load a video or audio file to preview alongside the subtitles, powered by
+  an embedded [mediaplay](https://github.com/hikashop-nicolas/mediaplay) player (MKV and
+  legacy containers, Dolby/DTS audio decode, libass ASS rendering). Double-click a cue to
+  seek, the currently-playing cue highlights, and the preview re-renders your edits live
+  as you type.
 - **Self-contained i18n** (English, French, Japanese), auto-detected, host-overridable
   via `setLocale()`.
 
 ## Status
 
-Phase 0 (this release): SRT + VTT editing, virtualized list, detail editor, toolbar,
-minimal preview. See [`_plans/SUBEDIT_PLAN.md`](_plans/SUBEDIT_PLAN.md) for the roadmap:
-mediaplay preview embed, waveform timeline, ASS round-trip, auto-transcription
-(Web Speech / Whisper), muxing subtitles into the video, and Omnitext integration.
+Phases 0-1 done: SRT + VTT editing (virtualized list, detail editor, toolbar) and the
+embedded mediaplay video/audio preview with cue seek, current-cue highlight and live
+subtitle rendering. See [`_plans/SUBEDIT_PLAN.md`](_plans/SUBEDIT_PLAN.md) for the rest of
+the roadmap: waveform timeline, ASS round-trip, auto-transcription (Web Speech / Whisper),
+muxing subtitles into the video, and Omnitext integration.
 
 ## API
 
@@ -52,7 +54,8 @@ mediaplay preview embed, waveform timeline, ASS round-trip, auto-transcription
 - `options.locale?` forces a UI locale (else auto-detected).
 - `options.showSave?` toggles the toolbar Save button (hosts that own saving pass false).
 - `handle.getText()` serializes the current document; `handle.getDoc()` returns the model;
-  `handle.focus()`; `handle.destroy()`.
+  `handle.loadPreviewMedia(file)` loads a video/audio file into the preview; `handle.focus()`;
+  `handle.destroy()`.
 
 The pure parse/serialize helpers (`parseSubtitles`, `serializeSubtitles`, `parseSrt`,
 `parseVtt`, `detectFormat`, `convertDoc`, timestamp helpers) are re-exported for headless

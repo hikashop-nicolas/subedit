@@ -19,6 +19,7 @@ import {
 } from "./cue";
 import { parseSubtitles, serializeSubtitles, convertDoc } from "./subtitles";
 import { setLocale, t } from "./i18n";
+import { createMediaPlayer, type MediaPlayerHandle } from "mediaplay";
 
 export interface SubtitleInput {
   text: string;
@@ -37,6 +38,9 @@ export interface SubtitleEditorOptions {
 export interface SubtitleEditorHandle {
   getText(): string;
   getDoc(): SubtitleDoc;
+  // Load a video/audio file into the preview pane programmatically (same as the
+  // "Load video" button). Useful for a host that already has the media in hand.
+  loadPreviewMedia(file: File): void;
   focus(): void;
   destroy(): void;
 }
@@ -45,6 +49,19 @@ const ROW_H = 46; // px per cue row
 const OVERSCAN = 6; // extra rows rendered above/below the viewport
 const CPS_WARN = 21;
 const CPS_BAD = 27;
+
+// Inline stroke icons for the toolbar (16-unit viewBox, currentColor), same style as
+// richdoc. Each button pairs one of these with a title/aria-label tooltip.
+const svgIcon = (inner: string): string =>
+  `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+const ICON = {
+  add: svgIcon('<path d="M8 3.5v9M3.5 8h9"/>'),
+  remove: svgIcon('<path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.4 8.5h6.2l.4-8.5"/>'),
+  shift: svgIcon('<circle cx="8" cy="8" r="5.5"/><path d="M8 5v3.2l2.2 1.3"/>'),
+  overlaps: svgIcon('<rect x="2.5" y="3.5" width="7" height="4" rx="1"/><rect x="6.5" y="8.5" width="7" height="4" rx="1"/>'),
+  video: svgIcon('<rect x="2" y="4" width="12" height="8" rx="1.5"/><path d="M6.6 6.7v2.6L9.2 8z" fill="currentColor" stroke="none"/>'),
+  save: svgIcon('<path d="M8 2.5v7.5M5 7.5l3 3 3-3M3.5 13h9"/>'),
+};
 
 let stylesInjected = false;
 function injectStyles(): void {
@@ -59,6 +76,9 @@ function injectStyles(): void {
 .se-btn{font:inherit;padding:4px 9px;border:1px solid var(--se-border);background:var(--se-bg);color:var(--se-fg);border-radius:6px;cursor:pointer;}
 .se-btn:hover{border-color:var(--se-accent);}
 .se-btn:disabled{opacity:.5;cursor:default;}
+.se-iconbtn{display:inline-flex;align-items:center;justify-content:center;padding:5px 7px;color:var(--se-fg);}
+.se-iconbtn:hover{color:var(--se-accent);}
+.se-iconbtn svg{display:block;}
 .se-count{color:var(--se-muted);font-size:12px;}
 .se-body{flex:1 1 auto;display:flex;min-height:0;}
 .se-left{flex:1 1 55%;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--se-border);}
@@ -85,7 +105,7 @@ function injectStyles(): void {
 .se-empty,.se-noprev{flex:1 1 auto;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--se-muted);}
 .se-noprev{color:#aab;}
 .se-empty h3{margin:0;color:var(--se-fg);font-size:15px;}
-.se-video{width:100%;height:100%;background:#000;display:block;object-fit:contain;min-height:0;}
+.se-playerhost{flex:1 1 auto;min-height:0;width:100%;height:100%;}
 @media (prefers-color-scheme: dark){
 .se-root{--se-bg:#1c1d21;--se-fg:#e6e7ea;--se-muted:#9aa0aa;--se-border:#33353b;--se-sel:#1e3a5f;--se-sel-fg:#eaf2ff;--se-head:#25272c;--se-warn:#f59e0b;--se-bad:#f87171;--se-accent:#60a5fa;}
 }
@@ -107,10 +127,11 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private detailEl!: HTMLDivElement;
   private countEl!: HTMLSpanElement;
   private rightEl!: HTMLDivElement;
-  private video: HTMLVideoElement | null = null;
-  private videoUrl: string | null = null;
+  private player: MediaPlayerHandle | null = null;
+  private video: HTMLMediaElement | null = null;
   private rows = new Map<string, HTMLDivElement>();
   private rafPending = false;
+  private subtitleTimer = 0;
 
   constructor(container: HTMLElement, input: SubtitleInput, opts: SubtitleEditorOptions) {
     this.opts = opts;
@@ -138,10 +159,10 @@ class SubtitleEditor implements SubtitleEditorHandle {
     const bar = el("div", "se-toolbar");
     bar.appendChild(el("b", "", t("appName")));
 
-    bar.appendChild(this.button(t("addCue"), () => this.addCue()));
-    bar.appendChild(this.button(t("removeCue"), () => this.removeCue()));
-    bar.appendChild(this.button(t("shiftTimes"), () => this.shiftTimes()));
-    bar.appendChild(this.button(t("fixOverlaps"), () => this.fixOverlaps()));
+    bar.appendChild(this.iconButton(ICON.add, t("addCue"), () => this.addCue()));
+    bar.appendChild(this.iconButton(ICON.remove, t("removeCue"), () => this.removeCue()));
+    bar.appendChild(this.iconButton(ICON.shift, t("shiftTimes"), () => this.shiftTimes()));
+    bar.appendChild(this.iconButton(ICON.overlaps, t("fixOverlaps"), () => this.fixOverlaps()));
 
     const fmt = document.createElement("select");
     fmt.className = "se-btn";
@@ -156,7 +177,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     fmt.addEventListener("change", () => this.setFormat(fmt.value as SubtitleFormat));
     bar.appendChild(fmt);
 
-    bar.appendChild(this.button(t("loadVideo"), () => this.pickVideo()));
+    bar.appendChild(this.iconButton(ICON.video, t("loadVideo"), () => this.pickVideo()));
 
     const sp = el("span", "se-sp");
     bar.appendChild(sp);
@@ -165,7 +186,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     bar.appendChild(this.countEl);
 
     if (this.opts.showSave !== false) {
-      bar.appendChild(this.button(t("save"), () => this.save()));
+      bar.appendChild(this.iconButton(ICON.save, t("save"), () => this.save()));
     }
     this.root.appendChild(bar);
   }
@@ -476,22 +497,35 @@ class SubtitleEditor implements SubtitleEditorHandle {
     input.accept = "video/*,audio/*";
     input.addEventListener("change", () => {
       const f = input.files?.[0];
-      if (f) this.loadVideo(f);
+      if (f) void this.loadVideo(f);
     });
     input.click();
   }
 
-  private loadVideo(file: File): void {
-    if (this.videoUrl) URL.revokeObjectURL(this.videoUrl);
-    this.videoUrl = URL.createObjectURL(file);
+  // Load the video/audio into an embedded mediaplay player: this brings MKV/legacy remux,
+  // Dolby/DTS audio decode and libass ASS rendering. embedded=true so the player's global
+  // shortcuts and CC menu stay out of the editor's way; subedit drives subtitles via
+  // setSubtitleText and reads currentTime from the underlying media element.
+  private async loadVideo(file: File): Promise<void> {
+    this.player?.destroy();
+    this.video?.removeEventListener("timeupdate", this.onTimeUpdate);
     this.rightEl.textContent = "";
-    const v = document.createElement("video");
-    v.className = "se-video";
-    v.controls = true;
-    v.src = this.videoUrl;
-    v.addEventListener("timeupdate", this.onTimeUpdate);
-    this.rightEl.appendChild(v);
-    this.video = v;
+    const host = el("div", "se-playerhost") as HTMLDivElement;
+    this.rightEl.appendChild(host);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    this.player = createMediaPlayer(host, { bytes, mime: file.type, filename: file.name }, { embedded: true });
+    this.video = this.player.getMediaElement() ?? null;
+    this.video?.addEventListener("timeupdate", this.onTimeUpdate);
+    this.pushSubtitles();
+  }
+
+  // Feed the current (serialized) document to the preview so it renders the live edits.
+  private pushSubtitles(immediate = false): void {
+    if (!this.player) return;
+    window.clearTimeout(this.subtitleTimer);
+    const send = () => this.player?.setSubtitleText(serializeSubtitles(this.doc), `subtitles.${this.doc.format}`);
+    if (immediate) send();
+    else this.subtitleTimer = window.setTimeout(send, 300);
   }
 
   private onTimeUpdate = (): void => {
@@ -555,6 +589,20 @@ class SubtitleEditor implements SubtitleEditorHandle {
     return b;
   }
 
+  // An icon-only toolbar button: SVG glyph + a title/aria-label tooltip. mousedown is
+  // suppressed so clicking the toolbar keeps focus and selection in the editor.
+  private iconButton(svg: string, title: string, onClick: () => void): HTMLButtonElement {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "se-btn se-iconbtn";
+    b.innerHTML = svg;
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    b.addEventListener("mousedown", (e) => e.preventDefault());
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
   private toast(msg: string): void {
     // Minimal, non-blocking status via the count element; hosts can style later.
     const prev = this.countEl.textContent;
@@ -566,6 +614,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
   private markDirty(): void {
     this.countEl.textContent = t("cueCount", { n: this.doc.cues.length });
+    this.pushSubtitles();
     this.opts.onChange?.();
   }
 
@@ -577,12 +626,17 @@ class SubtitleEditor implements SubtitleEditorHandle {
   getDoc(): SubtitleDoc {
     return this.doc;
   }
+  loadPreviewMedia(file: File): void {
+    void this.loadVideo(file);
+  }
   focus(): void {
     this.root.focus();
   }
   destroy(): void {
-    if (this.videoUrl) URL.revokeObjectURL(this.videoUrl);
+    window.clearTimeout(this.subtitleTimer);
     this.video?.removeEventListener("timeupdate", this.onTimeUpdate);
+    this.player?.destroy();
+    this.player = null;
     this.root.remove();
   }
 }

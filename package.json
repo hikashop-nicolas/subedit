@@ -18,14 +18,17 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "build:demo": "vite build",
+    "build:demo": "npm run assets && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "dev": "vite",
+    "assets": "node scripts/copy-octopus-assets.mjs && node scripts/copy-libav-assets.mjs",
+    "dev": "npm run assets && vite",
     "preview": "vite preview",
     "test": "vitest run",
     "prepare": "tsc -p tsconfig.json"
   },
-  "dependencies": {},
+  "dependencies": {
+    "mediaplay": "github:hikashop-nicolas/mediaplay"
+  },
   "devDependencies": {
     "typescript": "^6.0.3",
     "vite": "^8.0.16",

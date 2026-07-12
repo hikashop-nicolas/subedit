@@ -189,13 +189,15 @@ translate mode (two-column original/translation).
 
 ## Phases
 
-- **Phase 0, scaffold + formats**: repo from the geoedit template (tsc to
+- **Phase 0, scaffold + formats [DONE]**: repo from the geoedit template (tsc to
   dist/, prepare on git install, demo/, Pages deploy.yml, test.yml). SRT + VTT
   parsers/serializers with golden fixtures, cue model, virtualized cue list,
   detail editor, toolbar shell, i18n en/fr/ja. Usable as a video-less editor.
-- **Phase 1, preview**: mediaplay upstream API (getMediaElement,
-  setSubtitleText, embedded option), embed + load-video button, cue/playhead
-  sync, live subtitle preview, keyboard model.
+- **Phase 1, preview [DONE]**: mediaplay upstream API (getMediaElement,
+  setSubtitleText, embedded option) shipped in mediaplay; embed + load-video
+  button, double-click-cue seek, current-cue highlight on timeupdate, live
+  subtitle re-push on edit (300ms debounced), space/arrows keyboard model.
+  handle.loadPreviewMedia(file) added for programmatic loading (ASR flow).
 - **Phase 2, waveform**: PCM extraction, peak tiles, seek/zoom/drag retiming.
 - **Phase 3, ASS**: round-trip parser with section preservation, style
   dropdown, libass-styled preview via setSubtitleText.
