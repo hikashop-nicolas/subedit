@@ -213,8 +213,11 @@ translate mode (two-column original/translation).
   font datalist), per-cue Style picker + Edit button, per-cue actor/effect/layer/
   margins + Comment(disable) toggle, inline B/I/U/colour, position picker (\pos via
   clicking the preview), fade (\fad), karaoke (\k) editor, script-properties panel.
-  Word-based alignment labels. FUTURE (not built): animation (\t), vector drawings
-  (\p) / clip, blur (\blur/\be), decoding embedded [Fonts] to real font names.
+  Word-based alignment labels. Also shipped: transform popover (\frz/\fscx/\fscy/
+  \fsp/\blur) with animate (\t); position picker click=\pos / drag=\move; timeline
+  block visuals (fade triangles + karaoke syllable marks). FUTURE (not built):
+  vector drawings (\p) with a path editor, clipping (\clip/\iclip), decoding
+  embedded [Fonts] to real font names, complex 7-arg \fade.
 - **Phase 4, ASR**: TranscribeBackend interface + Web Speech implementation,
   empty-state generate flow, cue splitting heuristics.
 - **Phase 5, mux export**: "save into video" remux via mediabunny stream copy

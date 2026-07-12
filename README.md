@@ -35,8 +35,10 @@ const edited = handle.getText(); // the edited file, serialized in its format
   fill/karaoke/outline/shadow colours, bold/italic/underline/strikeout, scale, spacing,
   angle, border style, margins, encoding). Per-cue fields for actor, effect, layer,
   margins, and a **disable (comment)** toggle. An **inline toolbar** for bold/italic/
-  underline/colour, a **position picker** (click the preview to set `\pos`), **fade** and
-  **karaoke** (`\k`) editors, and a **script-properties** panel (PlayRes, wrap, title).
+  underline/colour, a **transform** popover (rotation/scale/spacing/blur with an animate
+  `\t` option), a **position picker** (click the preview for `\pos`, drag for `\move`),
+  **fade** (`\fad`) and a waveform **karaoke** (`\kf`) editor, and a **script-properties**
+  panel (PlayRes, wrap, title). Timeline cue blocks show fade triangles and karaoke marks.
 - **Cue operations:** add / remove, shift all times, fix overlaps, with CPS warnings.
 - **Timeline** at the bottom: a waveform of the loaded audio with the cues as blocks you
   can drag to move or resize, a ruler and a playhead, click-to-seek and wheel zoom/pan.
