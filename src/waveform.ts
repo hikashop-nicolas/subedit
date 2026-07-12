@@ -18,6 +18,7 @@ export interface TimelineCallbacks {
 const H = 104; // canvas CSS height
 const RULER_H = 16;
 const EDGE_PX = 5; // grab zone for a cue edge
+const SNAP_PX = 7; // snap a dragged edge to a neighbour within this pixel distance
 const MIN_PPS = 2; // min pixels per second (zoomed out)
 const MAX_PPS = 400; // max pixels per second (zoomed in)
 const PEAKS_PER_SEC = 100; // waveform bucket resolution
@@ -332,12 +333,34 @@ export class Timeline {
     this.canvas.style.cursor = !hit ? "grab" : hit.mode === "move" ? "move" : "ew-resize";
   };
 
+  // Nearest snap target (another cue's edge, or the playhead) within SNAP_PX of `ms`,
+  // else `ms` unchanged. Keeps cue edges aligned to their neighbours.
+  private snapMs(ms: number, excludeId: string): number {
+    const thresholdMs = (SNAP_PX / this.pxPerSec) * 1000;
+    let best = ms;
+    let bestD = thresholdMs;
+    for (const c of this.cb.getCues()) {
+      if (c.id === excludeId) continue;
+      for (const t of [c.startMs, c.endMs]) {
+        const d = Math.abs(ms - t);
+        if (d < bestD) {
+          bestD = d;
+          best = t;
+        }
+      }
+    }
+    const playheadMs = this.cb.getCurrentTime() * 1000;
+    if (Math.abs(ms - playheadMs) < bestD) best = Math.round(playheadMs);
+    return best;
+  }
+
   private onPointerMove = (e: PointerEvent): void => {
     if (!this.drag) return;
     const deltaSec = this.secOf(e.offsetX) - this.drag.grabSec;
     let start = this.drag.startMs;
     let end = this.drag.endMs;
     const dms = Math.round(deltaSec * 1000);
+    const id = this.drag.id;
     if (this.drag.mode === "move") {
       start += dms;
       end += dms;
@@ -345,12 +368,18 @@ export class Timeline {
         end -= start;
         start = 0;
       }
+      // Snap whichever edge lands nearest a target, shifting both by the same amount.
+      const ss = this.snapMs(start, id);
+      const se = this.snapMs(end, id);
+      const adj = ss !== start && (se === end || Math.abs(ss - start) <= Math.abs(se - end)) ? ss - start : se !== end ? se - end : 0;
+      start += adj;
+      end += adj;
     } else if (this.drag.mode === "start") {
-      start = Math.min(Math.max(0, start + dms), end - 10);
+      start = Math.min(Math.max(0, this.snapMs(start + dms, id)), end - 10);
     } else {
-      end = Math.max(end + dms, start + 10);
+      end = Math.max(this.snapMs(end + dms, id), start + 10);
     }
-    this.cb.onRetime(this.drag.id, start, end, false);
+    this.cb.onRetime(id, start, end, false);
     this.render();
   };
 

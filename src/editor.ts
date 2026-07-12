@@ -178,7 +178,6 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
   private buildToolbar(): void {
     const bar = el("div", "se-toolbar");
-    bar.appendChild(el("b", "", t("appName")));
 
     bar.appendChild(this.iconButton(ICON.add, t("addCue"), () => this.addCue()));
     bar.appendChild(this.iconButton(ICON.remove, t("removeCue"), () => this.removeCue()));
