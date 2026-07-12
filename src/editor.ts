@@ -90,7 +90,7 @@ function injectStyles(): void {
 .se-count{color:var(--se-muted);font-size:12px;}
 .se-body{flex:1 1 auto;display:flex;min-height:0;}
 .se-left{flex:1 1 55%;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--se-border);}
-.se-right{flex:1 1 45%;display:flex;flex-direction:column;min-width:0;background:#000;}
+.se-right{flex:1 1 45%;display:flex;flex-direction:column;min-width:0;background:#000;position:relative;}
 .se-listhead,.se-row{display:grid;grid-template-columns:44px 96px 96px 52px 44px 1fr;align-items:center;gap:6px;padding:0 8px;}
 .se-listhead{height:28px;border-bottom:1px solid var(--se-border);color:var(--se-muted);font-size:11px;text-transform:uppercase;letter-spacing:.03em;background:var(--se-head);flex:0 0 auto;}
 .se-scroll{flex:1 1 auto;overflow-y:auto;position:relative;}
