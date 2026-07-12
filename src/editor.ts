@@ -21,12 +21,8 @@ import { parseSubtitles, serializeSubtitles, convertDoc } from "./subtitles";
 import { styleNames, hexToAssColor } from "./ass";
 import { openStylesEditor } from "./styles-editor";
 import { setLocale, t } from "./i18n";
-import { Timeline, extractPeaks } from "./waveform";
-import { createMediaPlayer, type MediaPlayerHandle } from "mediaplay";
-
-// decodeAudioData holds the whole decoded PCM in RAM, so only attempt waveform
-// extraction on reasonably small files; larger media shows the timeline without peaks.
-const MAX_DECODE_BYTES = 100 * 1024 * 1024;
+import { Timeline } from "./waveform";
+import { createMediaPlayer, extractWaveformPeaks, type MediaPlayerHandle } from "mediaplay";
 
 export interface SubtitleInput {
   text: string;
@@ -120,8 +116,9 @@ function injectStyles(): void {
 .se-noprev{color:#aab;}
 .se-empty h3{margin:0;color:var(--se-fg);font-size:15px;}
 .se-playerhost{flex:1 1 auto;min-height:0;width:100%;height:100%;}
-.se-timeline-wrap{flex:0 0 auto;border-top:1px solid var(--se-border);background:var(--se-head);}
+.se-timeline-wrap{flex:0 0 auto;border-top:1px solid var(--se-border);background:var(--se-head);position:relative;}
 .se-timeline{touch-action:none;cursor:crosshair;}
+.se-wave-status{position:absolute;top:20px;left:10px;z-index:1;font-size:11px;color:var(--se-muted);pointer-events:none;}
 @media (prefers-color-scheme: dark){
 .se-root{--se-bg:#1c1d21;--se-fg:#e6e7ea;--se-muted:#9aa0aa;--se-border:#33353b;--se-sel:#1e3a5f;--se-sel-fg:#eaf2ff;--se-head:#25272c;--se-warn:#f59e0b;--se-bad:#f87171;--se-accent:#60a5fa;}
 }
@@ -147,6 +144,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private player: MediaPlayerHandle | null = null;
   private video: HTMLMediaElement | null = null;
   private timeline: Timeline | null = null;
+  private waveAbort: AbortController | null = null;
+  private waveStatusEl: HTMLDivElement | null = null;
   private rows = new Map<string, HTMLDivElement>();
   private rafPending = false;
   private subtitleTimer = 0;
@@ -247,6 +246,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
     // Bottom timeline: cue blocks + waveform + playhead, spanning the full width.
     const strip = el("div", "se-timeline-wrap");
+    this.waveStatusEl = el("div", "se-wave-status") as HTMLDivElement;
+    strip.appendChild(this.waveStatusEl);
     this.root.appendChild(strip);
     this.timeline = new Timeline({
       getCues: () => this.doc.cues,
@@ -690,23 +691,39 @@ class SubtitleEditor implements SubtitleEditorHandle {
       v.addEventListener("seeked", () => this.timeline?.render());
     }
     this.pushSubtitles();
-    if (bytes.length <= MAX_DECODE_BYTES) void this.extractWaveform(bytes);
-    else this.timeline?.clearPeaks();
+    void this.extractWaveform(bytes);
   }
 
-  // Decode the media's audio to a waveform. decodeAudioData handles browser-decodable
-  // audio (mp3/wav/m4a/ogg/webm and audio in some containers); codecs it can't decode
-  // (e.g. E-AC-3 in MKV) leave the timeline peak-less, which is fine.
+  // Decode the media's audio to a waveform via mediaplay, which handles every codec it can
+  // play (incl. Dolby/DTS the browser can't decode) and streams the PCM so large files
+  // don't buffer in memory. Aborts if another media file is loaded meanwhile.
   private async extractWaveform(bytes: Uint8Array): Promise<void> {
+    this.waveAbort?.abort();
+    const ac = new AbortController();
+    this.waveAbort = ac;
+    this.timeline?.clearPeaks();
+    this.setWaveStatus(t("extractingWave"));
     try {
-      const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const ctx = new AC();
-      const buffer = await ctx.decodeAudioData(bytes.slice().buffer);
-      void ctx.close();
-      this.timeline?.setPeaks(extractPeaks(buffer));
+      const result = await extractWaveformPeaks(bytes, {
+        base: new URL("libav/", document.baseURI).toString(),
+        signal: ac.signal,
+        durationHint: this.video?.duration || undefined,
+        onProgress: (r) => this.setWaveStatus(`${t("extractingWave")} ${Math.round(r * 100)}%`),
+      });
+      if (ac.signal.aborted) return;
+      if (result?.peaks.length) this.timeline?.setPeaks(result.peaks, result.peaksPerSec);
     } catch {
-      this.timeline?.clearPeaks();
+      /* leave the timeline peak-less */
+    } finally {
+      if (this.waveAbort === ac) {
+        this.waveAbort = null;
+        this.setWaveStatus("");
+      }
     }
+  }
+
+  private setWaveStatus(text: string): void {
+    if (this.waveStatusEl) this.waveStatusEl.textContent = text;
   }
 
   // Feed the current (serialized) document to the preview so it renders the live edits.
@@ -825,6 +842,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   }
   destroy(): void {
     window.clearTimeout(this.subtitleTimer);
+    this.waveAbort?.abort();
     this.video?.removeEventListener("timeupdate", this.onTimeUpdate);
     this.timeline?.destroy();
     this.timeline = null;

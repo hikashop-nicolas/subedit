@@ -376,28 +376,6 @@ export class Timeline {
   }
 }
 
-// Downmix an AudioBuffer to absolute-peak buckets at PEAKS_PER_SEC resolution.
-export function extractPeaks(buffer: AudioBuffer, peaksPerSec = PEAKS_PER_SEC): Float32Array {
-  const total = Math.max(1, Math.ceil(buffer.duration * peaksPerSec));
-  const out = new Float32Array(total);
-  const samplesPerBucket = buffer.sampleRate / peaksPerSec;
-  const chans: Float32Array[] = [];
-  for (let ch = 0; ch < buffer.numberOfChannels; ch++) chans.push(buffer.getChannelData(ch));
-  for (let b = 0; b < total; b++) {
-    const s0 = Math.floor(b * samplesPerBucket);
-    const s1 = Math.min(chans[0].length, Math.floor((b + 1) * samplesPerBucket));
-    let peak = 0;
-    for (const data of chans) {
-      for (let s = s0; s < s1; s++) {
-        const a = Math.abs(data[s]);
-        if (a > peak) peak = a;
-      }
-    }
-    out[b] = peak;
-  }
-  return out;
-}
-
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }

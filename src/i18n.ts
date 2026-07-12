@@ -52,6 +52,7 @@ const en: Dict = {
   errRead: "This file could not be read as subtitles:",
   overlapsFixed: "Fixed {n} overlapping cue(s).",
   cueCount: "{n} cues",
+  extractingWave: "Reading waveform…",
 };
 
 const fr: Dict = {
@@ -101,6 +102,7 @@ const fr: Dict = {
   errRead: "Ce fichier n'a pas pu être lu comme des sous-titres :",
   overlapsFixed: "{n} chevauchement(s) corrigé(s).",
   cueCount: "{n} sous-titres",
+  extractingWave: "Lecture de la forme d\u2019onde…",
 };
 
 const ja: Dict = {
@@ -150,6 +152,7 @@ const ja: Dict = {
   errRead: "このファイルを字幕として読み込めませんでした:",
   overlapsFixed: "{n} 件の重なりを修正しました。",
   cueCount: "{n} 件の字幕",
+  extractingWave: "波形を読み込み中…",
 };
 
 const LOCALES: Record<string, Dict> = { en, fr, ja };

@@ -29,11 +29,16 @@ const edited = handle.getText(); // the edited file, serialized in its format
   identifiers and settings are all preserved. Edited cues are re-serialized canonically.
 - **Format-aware.** SRT, VTT and ASS/SSA parse/serialize with the correct timestamp form;
   convert between them from the toolbar. ASS keeps its Script Info, styles, fonts and
-  comments byte-for-byte, rebuilding only the Dialogue lines you edit, and surfaces a
-  per-cue **Style** picker.
+  comments byte-for-byte, rebuilding only the lines you edit.
+- **ASS styling.** A per-cue **Style** picker, a **styles editor** to create / edit /
+  duplicate / delete style definitions (font, size, fill/outline colour, bold/italic/
+  underline, alignment), and an **inline-formatting toolbar** that wraps the selected text
+  in the matching override tags (bold, italic, underline, colour, position).
 - **Cue operations:** add / remove, shift all times, fix overlaps, with CPS warnings.
 - **Timeline** at the bottom: a waveform of the loaded audio with the cues as blocks you
   can drag to move or resize, a ruler and a playhead, click-to-seek and wheel zoom/pan.
+  The waveform is decoded through mediaplay, so it works even for codecs the browser can't
+  play natively (Dolby AC-3/E-AC-3, DTS) and streams so large files don't buffer in memory.
 - **Preview.** Load a video or audio file to preview alongside the subtitles, powered by
   an embedded [mediaplay](https://github.com/hikashop-nicolas/mediaplay) player (MKV and
   legacy containers, Dolby/DTS audio decode, libass ASS rendering). Double-click a cue to
