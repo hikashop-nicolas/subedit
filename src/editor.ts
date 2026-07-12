@@ -8,6 +8,7 @@
 
 import {
   type Cue,
+  type AssStyle,
   type SubtitleDoc,
   type SubtitleFormat,
   blankCue,
@@ -18,9 +19,9 @@ import {
   sortCues,
 } from "./cue";
 import { parseSubtitles, serializeSubtitles, convertDoc } from "./subtitles";
-import { styleNames, hexToAssColor } from "./ass";
-import { openStylesEditor } from "./styles-editor";
-import { setLocale, t } from "./i18n";
+import { styleNames, hexToAssColor, makeDefaultStyle, uniqueStyleName } from "./ass";
+import { openStyleEditor } from "./styles-editor";
+import { setLocale, t, alignmentOptions } from "./i18n";
 import { Timeline } from "./waveform";
 import { createMediaPlayer, extractWaveformPeaks, type MediaPlayerHandle } from "mediaplay";
 
@@ -104,6 +105,9 @@ function injectStyles(): void {
 .se-times{display:flex;gap:8px;flex-wrap:wrap;}
 .se-field{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--se-muted);}
 .se-field input{font:inherit;font-variant-numeric:tabular-nums;padding:3px 6px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);width:110px;}
+.se-stylerow{display:flex;gap:4px;align-items:center;}
+.se-stylefield select{font:inherit;padding:3px 6px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);}
+.se-styleedit{padding:3px 6px;}
 .se-detail textarea{font:inherit;min-height:56px;resize:vertical;padding:6px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);}
 .se-inlinebar{display:flex;gap:5px;align-items:center;}
 .se-inbtn{font:600 12px system-ui;width:26px;height:24px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);cursor:pointer;}
@@ -117,7 +121,7 @@ function injectStyles(): void {
 .se-empty h3{margin:0;color:var(--se-fg);font-size:15px;}
 .se-playerhost{flex:1 1 auto;min-height:0;width:100%;height:100%;}
 .se-timeline-wrap{flex:0 0 auto;border-top:1px solid var(--se-border);background:var(--se-head);position:relative;}
-.se-timeline{touch-action:none;cursor:crosshair;}
+.se-timeline{touch-action:none;cursor:grab;}
 .se-wave-status{position:absolute;top:20px;left:10px;z-index:1;font-size:11px;color:var(--se-muted);pointer-events:none;}
 @media (prefers-color-scheme: dark){
 .se-root{--se-bg:#1c1d21;--se-fg:#e6e7ea;--se-muted:#9aa0aa;--se-border:#33353b;--se-sel:#1e3a5f;--se-sel-fg:#eaf2ff;--se-head:#25272c;--se-warn:#f59e0b;--se-bad:#f87171;--se-accent:#60a5fa;}
@@ -194,8 +198,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
     fmt.addEventListener("change", () => this.setFormat(fmt.value as SubtitleFormat));
     bar.appendChild(fmt);
 
-    // Styles editor (ASS only).
-    this.stylesBtn = this.iconButton(ICON.styles, t("styles"), () => this.openStyles());
+    // New ASS style (ASS only); edit lives next to the per-cue style dropdown.
+    this.stylesBtn = this.iconButton(ICON.styles, t("addStyle"), () => this.addStyle());
     this.stylesBtn.style.display = this.doc.format === "ass" ? "" : "none";
     bar.appendChild(this.stylesBtn);
 
@@ -475,12 +479,12 @@ class SubtitleEditor implements SubtitleEditorHandle {
     align.title = t("styleAlign");
     const opt0 = document.createElement("option");
     opt0.value = "";
-    opt0.textContent = t("styleAlign");
+    opt0.textContent = t("alignPos");
     align.appendChild(opt0);
-    for (const a of ["7", "8", "9", "4", "5", "6", "1", "2", "3"]) {
+    for (const { value, label } of alignmentOptions()) {
       const o = document.createElement("option");
-      o.value = a;
-      o.textContent = `\\an${a}`;
+      o.value = value;
+      o.textContent = label;
       align.appendChild(o);
     }
     align.addEventListener("change", () => {
@@ -508,9 +512,11 @@ class SubtitleEditor implements SubtitleEditorHandle {
   }
 
   // ASS style picker for the selected cue: the file's style names, plus the cue's own
-  // style if the file didn't declare it. Writing sets the cue's Style Event field.
+  // style if the file didn't declare it. Writing sets the cue's Style Event field; the
+  // adjacent pencil opens the editor for the selected style.
   private styleField(cue: Cue): HTMLElement {
     const wrap = el("label", "se-field se-stylefield", t("style"));
+    const row = el("div", "se-stylerow");
     const select = document.createElement("select");
     const current = cue.assFields?.Style ?? "Default";
     const declared = styleNames(this.doc);
@@ -528,21 +534,51 @@ class SubtitleEditor implements SubtitleEditorHandle {
       this.refreshRow(cue.id);
       this.markDirty();
     });
-    wrap.appendChild(select);
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "se-btn se-iconbtn se-styleedit";
+    edit.innerHTML = ICON.styles;
+    edit.title = t("editStyle");
+    edit.setAttribute("aria-label", t("editStyle"));
+    edit.addEventListener("click", () => this.editStyle(select.value));
+    row.append(select, edit);
+    wrap.appendChild(row);
     return wrap;
   }
 
-  private openStyles(): void {
-    openStylesEditor({
-      getDoc: () => this.doc,
-      onChange: () => {
-        this.renderDetail(); // refresh the per-cue style dropdown options
-        this.markDirty();
+  private addStyle(): void {
+    this.doc.styles ??= [];
+    const style = makeDefaultStyle(uniqueStyleName(this.doc, "New style"));
+    this.doc.styles.push(style);
+    this.markDirty();
+    this.renderDetail();
+    this.openStyleEditor(style);
+  }
+
+  private editStyle(name: string): void {
+    this.doc.styles ??= [];
+    let style = this.doc.styles.find((s) => s.name === name);
+    if (!style) {
+      style = makeDefaultStyle(name);
+      this.doc.styles.push(style);
+    }
+    this.openStyleEditor(style);
+  }
+
+  private openStyleEditor(style: AssStyle): void {
+    openStyleEditor(
+      {
+        getDoc: () => this.doc,
+        onChange: () => {
+          this.renderDetail(); // refresh the style dropdown options + selection
+          this.markDirty();
+        },
+        onRenameStyle: (from, to) => {
+          for (const c of this.doc.cues) if (c.assFields?.Style === from) c.assFields.Style = to;
+        },
       },
-      onRenameStyle: (from, to) => {
-        for (const c of this.doc.cues) if (c.assFields?.Style === from) c.assFields.Style = to;
-      },
-    });
+      style,
+    );
   }
 
   // --- editing operations --------------------------------------------------

@@ -35,6 +35,15 @@ export function makeDefaultStyle(name: string): AssStyle {
   return { name, fields: { ...DEFAULT_STYLE_VALUES } };
 }
 
+// A style name not already used in the document (appends " 2", " 3", ... on collision).
+export function uniqueStyleName(doc: SubtitleDoc, base: string): string {
+  const names = new Set((doc.styles ?? []).map((s) => s.name));
+  if (!names.has(base)) return base;
+  let n = 2;
+  while (names.has(`${base} ${n}`)) n += 1;
+  return `${base} ${n}`;
+}
+
 // Split into at most n comma fields; the last field keeps every remaining comma (the
 // ASS Text field can contain commas and is always last in the Format).
 function splitFields(rest: string, n: number): string[] {

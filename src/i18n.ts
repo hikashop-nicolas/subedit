@@ -32,13 +32,21 @@ const en: Dict = {
   style: "Style",
   styles: "Styles…",
   stylesEditor: "Styles",
-  addStyle: "Add style",
+  addStyle: "New style",
+  editStyle: "Edit style",
   styleName: "Name",
   styleFont: "Font",
   styleSize: "Size",
   stylePrimary: "Fill",
   styleOutline: "Outline",
   styleAlign: "Align",
+  styleSecondary: "Karaoke",
+  styleBack: "Shadow col.",
+  styleOutlineW: "Outline",
+  styleShadow: "Shadow",
+  marginL: "Left",
+  marginR: "Right",
+  marginV: "Vertical",
   duplicate: "Duplicate",
   delete: "Delete",
   close: "Close",
@@ -53,6 +61,10 @@ const en: Dict = {
   overlapsFixed: "Fixed {n} overlapping cue(s).",
   cueCount: "{n} cues",
   extractingWave: "Reading waveform…",
+  posTL: "Top left", posTC: "Top center", posTR: "Top right",
+  posML: "Middle left", posMC: "Middle center", posMR: "Middle right",
+  posBL: "Bottom left", posBC: "Bottom center", posBR: "Bottom right",
+  alignPos: "Position",
 };
 
 const fr: Dict = {
@@ -82,13 +94,21 @@ const fr: Dict = {
   style: "Style",
   styles: "Styles…",
   stylesEditor: "Styles",
-  addStyle: "Ajouter un style",
+  addStyle: "Nouveau style",
+  editStyle: "Modifier le style",
   styleName: "Nom",
   styleFont: "Police",
   styleSize: "Taille",
   stylePrimary: "Remplissage",
   styleOutline: "Contour",
   styleAlign: "Alignement",
+  styleSecondary: "Karaoké",
+  styleBack: "Coul. ombre",
+  styleOutlineW: "Contour",
+  styleShadow: "Ombre",
+  marginL: "Gauche",
+  marginR: "Droite",
+  marginV: "Vertical",
   duplicate: "Dupliquer",
   delete: "Supprimer",
   close: "Fermer",
@@ -103,6 +123,10 @@ const fr: Dict = {
   overlapsFixed: "{n} chevauchement(s) corrigé(s).",
   cueCount: "{n} sous-titres",
   extractingWave: "Lecture de la forme d\u2019onde…",
+  posTL: "Haut gauche", posTC: "Haut centre", posTR: "Haut droite",
+  posML: "Milieu gauche", posMC: "Milieu centre", posMR: "Milieu droite",
+  posBL: "Bas gauche", posBC: "Bas centre", posBR: "Bas droite",
+  alignPos: "Position",
 };
 
 const ja: Dict = {
@@ -132,13 +156,21 @@ const ja: Dict = {
   style: "スタイル",
   styles: "スタイル…",
   stylesEditor: "スタイル",
-  addStyle: "スタイルを追加",
+  addStyle: "新しいスタイル",
+  editStyle: "スタイルを編集",
   styleName: "名前",
   styleFont: "フォント",
   styleSize: "サイズ",
   stylePrimary: "塗り",
   styleOutline: "縁取り",
   styleAlign: "配置",
+  styleSecondary: "カラオケ",
+  styleBack: "影の色",
+  styleOutlineW: "縁取り",
+  styleShadow: "影",
+  marginL: "左",
+  marginR: "右",
+  marginV: "縦",
   duplicate: "複製",
   delete: "削除",
   close: "閉じる",
@@ -153,6 +185,10 @@ const ja: Dict = {
   overlapsFixed: "{n} 件の重なりを修正しました。",
   cueCount: "{n} 件の字幕",
   extractingWave: "波形を読み込み中…",
+  posTL: "左上", posTC: "中央上", posTR: "右上",
+  posML: "左中央", posMC: "中央", posMR: "右中央",
+  posBL: "左下", posBC: "中央下", posBR: "右下",
+  alignPos: "位置",
 };
 
 const LOCALES: Record<string, Dict> = { en, fr, ja };
@@ -171,6 +207,15 @@ function detect(): Dict {
   return en;
 }
 current = detect();
+
+// Numpad-position alignment options (ASS \\anN), labeled with words, top row first.
+export function alignmentOptions(): { value: string; label: string }[] {
+  return [
+    { value: "7", label: t("posTL") }, { value: "8", label: t("posTC") }, { value: "9", label: t("posTR") },
+    { value: "4", label: t("posML") }, { value: "5", label: t("posMC") }, { value: "6", label: t("posMR") },
+    { value: "1", label: t("posBL") }, { value: "2", label: t("posBC") }, { value: "3", label: t("posBR") },
+  ];
+}
 
 // Force a specific locale (host override). Unknown codes fall back to English.
 export function setLocale(code: string): void {

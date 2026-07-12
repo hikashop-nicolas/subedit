@@ -48,6 +48,7 @@ export class Timeline {
   private ro: ResizeObserver | null = null;
   private raf = 0;
   private drag: { id: string; mode: DragMode; grabSec: number; startMs: number; endMs: number } | null = null;
+  private pan: { startX: number; startScroll: number; moved: boolean } | null = null;
   private dpr = Math.min(2, typeof devicePixelRatio === "number" ? devicePixelRatio : 1);
 
   constructor(callbacks: TimelineCallbacks) {
@@ -299,15 +300,36 @@ export class Timeline {
       this.render();
       return;
     }
-    // Empty area: seek.
-    this.cb.onSeek(Math.max(0, this.secOf(x)));
+    // Empty area: start a pan. A click without dragging seeks (handled on pointerup).
+    this.pan = { startX: x, startScroll: this.scrollSec, moved: false };
+    this.canvas.style.cursor = "grabbing";
+    this.canvas.setPointerCapture(e.pointerId);
+    this.canvas.addEventListener("pointermove", this.onPanMove);
+    this.canvas.addEventListener("pointerup", this.onPanUp);
+  };
+
+  private onPanMove = (e: PointerEvent): void => {
+    if (!this.pan) return;
+    const dx = e.offsetX - this.pan.startX;
+    if (Math.abs(dx) > 3) this.pan.moved = true;
+    this.scrollSec = Math.max(0, this.pan.startScroll - dx / this.pxPerSec);
+    this.render();
+  };
+
+  private onPanUp = (e: PointerEvent): void => {
+    if (this.pan && !this.pan.moved) this.cb.onSeek(Math.max(0, this.secOf(e.offsetX)));
+    this.pan = null;
+    this.canvas.style.cursor = "grab";
+    this.canvas.releasePointerCapture(e.pointerId);
+    this.canvas.removeEventListener("pointermove", this.onPanMove);
+    this.canvas.removeEventListener("pointerup", this.onPanUp);
     this.render();
   };
 
   private onHover = (e: PointerEvent): void => {
-    if (this.drag) return;
+    if (this.drag || this.pan) return;
     const hit = e.offsetY > RULER_H ? this.hitTest(e.offsetX) : null;
-    this.canvas.style.cursor = !hit ? "crosshair" : hit.mode === "move" ? "grab" : "ew-resize";
+    this.canvas.style.cursor = !hit ? "grab" : hit.mode === "move" ? "move" : "ew-resize";
   };
 
   private onPointerMove = (e: PointerEvent): void => {
