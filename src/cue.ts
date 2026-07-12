@@ -27,20 +27,34 @@ export interface Cue {
   assFields?: Record<string, string>;
 }
 
+// An ASS style definition ([V4+ Styles] Style line), editable in the styles editor.
+export interface AssStyle {
+  name: string;
+  // The Style Format fields except Name (Fontname, Fontsize, PrimaryColour, Bold, ...),
+  // keyed by their Format name and re-emitted in the file's field order.
+  fields: Record<string, string>;
+  // Raw non-Style lines within the styles section preceding this style, verbatim.
+  notesBefore?: string;
+}
+
 export interface SubtitleDoc {
   format: SubtitleFormat;
   cues: Cue[];
   eol: "\n" | "\r\n";
   bom: boolean;
   finalNewline: boolean;
-  // VTT: the "WEBVTT..." preamble up to the first blank line, verbatim. ASS: everything
-  // up to and including the [Events] Format line, verbatim. SRT: undefined.
+  // VTT: the "WEBVTT..." preamble up to the first blank line, verbatim. SRT: undefined.
   header?: string;
-  // Raw blocks after the last cue (VTT NOTE/STYLE, ASS [Fonts]/trailing), verbatim.
+  // Raw blocks after the last cue (VTT NOTE/STYLE, ASS trailing), verbatim.
   trailingNotes?: string;
-  // ASS: the [Events] Format field names in order, and the style names (for the picker).
+  // ASS layout: verbatim text from the start through the [V4+ Styles] Format line;
+  // editable style definitions; verbatim text after the last Style line through the
+  // [Events] Format line; and the Style / Events Format field names in order.
+  assScriptInfo?: string;
+  styles?: AssStyle[];
+  assStylesTail?: string;
+  assStyleFormat?: string[];
   assFormat?: string[];
-  assStyles?: string[];
 }
 
 let idSeq = 0;

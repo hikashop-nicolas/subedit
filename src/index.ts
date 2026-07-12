@@ -17,6 +17,7 @@ export {
 export { setLocale, t } from "./i18n";
 export {
   type Cue,
+  type AssStyle,
   type SubtitleDoc,
   type SubtitleFormat,
   blankCue,

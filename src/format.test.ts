@@ -136,8 +136,11 @@ describe("ASS", () => {
     expect(doc.cues[1].text).toBe("{\\i1}Styled{\\i0} line");
     expect(doc.cues[1].assFields?.Style).toBe("Title");
   });
-  it("collects style names for the picker", () => {
-    expect(parseAss(ASS_GOLDEN).assStyles).toEqual(["Default", "Title"]);
+  it("collects styles for the editor and picker", () => {
+    const doc = parseAss(ASS_GOLDEN);
+    expect(doc.styles?.map((s) => s.name)).toEqual(["Default", "Title"]);
+    expect(doc.styles?.[0].fields.Fontsize).toBe("72");
+    expect(doc.styles?.[1].fields.Fontsize).toBe("90");
   });
   it("keeps the Comment line as a note on the following cue", () => {
     expect(parseAss(ASS_GOLDEN).cues[1].notesBefore).toContain("Comment: 0,");
@@ -163,6 +166,14 @@ describe("ASS", () => {
     expect(formatAssTime(1000)).toBe("0:00:01.00");
     expect(formatAssTime(5500)).toBe("0:00:05.50");
     expect(formatAssTime(3661230)).toBe("1:01:01.23");
+  });
+  it("re-emits only the edited style, keeping the rest byte-exact", () => {
+    const doc = parseAss(ASS_GOLDEN);
+    doc.styles![0].fields.Fontsize = "80";
+    const out = serializeAss(doc);
+    expect(out).toContain("Style: Default,Arial,80,");
+    expect(out).toContain("Style: Title,Arial,90,"); // untouched
+    expect(out).toContain("Dialogue: 0,0:00:01.00,0:00:04.00,Default"); // events untouched
   });
 });
 
@@ -191,9 +202,12 @@ describe("dispatch and conversion", () => {
   it("converts SRT to ASS with a Default style scaffold", () => {
     const ass = convertDoc(parseSrt(SRT_GOLDEN), "ass");
     expect(ass.format).toBe("ass");
-    expect(ass.header).toContain("[Events]");
+    expect(ass.styles?.map((s) => s.name)).toEqual(["Default"]);
     expect(ass.cues[0].assFields?.Style).toBe("Default");
     const out = serializeSubtitles(ass);
+    expect(out).toContain("[Events]");
+    expect(out).toContain("[V4+ Styles]");
+    expect(out).toContain("Style: Default,");
     expect(out).toContain("Dialogue: 0,0:00:01.00,0:00:04.00,Default");
     // Multi-line SRT text becomes \N in ASS.
     expect(out).toContain("Second line one\\NSecond line two");

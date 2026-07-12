@@ -18,6 +18,8 @@ import {
   sortCues,
 } from "./cue";
 import { parseSubtitles, serializeSubtitles, convertDoc } from "./subtitles";
+import { styleNames } from "./ass";
+import { openStylesEditor } from "./styles-editor";
 import { setLocale, t } from "./i18n";
 import { Timeline, extractPeaks } from "./waveform";
 import { createMediaPlayer, type MediaPlayerHandle } from "mediaplay";
@@ -64,6 +66,7 @@ const ICON = {
   remove: svgIcon('<path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.4 8.5h6.2l.4-8.5"/>'),
   shift: svgIcon('<circle cx="8" cy="8" r="5.5"/><path d="M8 5v3.2l2.2 1.3"/>'),
   overlaps: svgIcon('<rect x="2.5" y="3.5" width="7" height="4" rx="1"/><rect x="6.5" y="8.5" width="7" height="4" rx="1"/>'),
+  styles: svgIcon('<path d="M5 3.5h6M8 3.5v9M5.5 12.5h5"/><path d="M11.5 8.5l2-2 1.5 1.5-2 2z"/>'),
   save: svgIcon('<path d="M8 2.5v7.5M5 7.5l3 3 3-3M3.5 13h9"/>'),
 };
 
@@ -132,6 +135,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private innerEl!: HTMLDivElement;
   private detailEl!: HTMLDivElement;
   private countEl!: HTMLSpanElement;
+  private stylesBtn!: HTMLButtonElement;
   private rightEl!: HTMLDivElement;
   private player: MediaPlayerHandle | null = null;
   private video: HTMLMediaElement | null = null;
@@ -183,6 +187,11 @@ class SubtitleEditor implements SubtitleEditorHandle {
     fmt.title = t("format");
     fmt.addEventListener("change", () => this.setFormat(fmt.value as SubtitleFormat));
     bar.appendChild(fmt);
+
+    // Styles editor (ASS only).
+    this.stylesBtn = this.iconButton(ICON.styles, t("styles"), () => this.openStyles());
+    this.stylesBtn.style.display = this.doc.format === "ass" ? "" : "none";
+    bar.appendChild(this.stylesBtn);
 
     const sp = el("span", "se-sp");
     bar.appendChild(sp);
@@ -428,7 +437,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
     const wrap = el("label", "se-field se-stylefield", t("style"));
     const select = document.createElement("select");
     const current = cue.assFields?.Style ?? "Default";
-    const names = this.doc.assStyles?.length ? [...this.doc.assStyles] : ["Default"];
+    const declared = styleNames(this.doc);
+    const names = declared.length ? [...declared] : ["Default"];
     if (!names.includes(current)) names.unshift(current);
     for (const name of names) {
       const o = document.createElement("option");
@@ -444,6 +454,19 @@ class SubtitleEditor implements SubtitleEditorHandle {
     });
     wrap.appendChild(select);
     return wrap;
+  }
+
+  private openStyles(): void {
+    openStylesEditor({
+      getDoc: () => this.doc,
+      onChange: () => {
+        this.renderDetail(); // refresh the per-cue style dropdown options
+        this.markDirty();
+      },
+      onRenameStyle: (from, to) => {
+        for (const c of this.doc.cues) if (c.assFields?.Style === from) c.assFields.Style = to;
+      },
+    });
   }
 
   // --- editing operations --------------------------------------------------
@@ -521,6 +544,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private setFormat(target: SubtitleFormat): void {
     if (target === this.doc.format) return;
     this.doc = convertDoc(this.doc, target);
+    this.stylesBtn.style.display = target === "ass" ? "" : "none";
     this.rows.clear();
     this.innerEl.textContent = "";
     this.renderList();

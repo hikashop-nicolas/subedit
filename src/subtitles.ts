@@ -4,7 +4,7 @@
 import type { Cue, SubtitleDoc, SubtitleFormat } from "./cue";
 import { parseSrt, serializeSrt } from "./srt";
 import { parseVtt, serializeVtt } from "./vtt";
-import { parseAss, serializeAss, defaultAssHeader, ASS_EVENT_FORMAT } from "./ass";
+import { parseAss, serializeAss, defaultAssParts, ASS_EVENT_FORMAT, DEFAULT_STYLE_FORMAT } from "./ass";
 
 export function detectFormat(filename: string | undefined, sample: string): SubtitleFormat {
   const ext = (filename ?? "").toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
@@ -44,12 +44,19 @@ export function convertDoc(doc: SubtitleDoc, target: SubtitleFormat): SubtitleDo
   const next: SubtitleDoc = { ...doc, format: target };
   const fromAss = doc.format === "ass";
   next.assFormat = undefined;
-  next.assStyles = undefined;
+  next.assStyleFormat = undefined;
+  next.assScriptInfo = undefined;
+  next.assStylesTail = undefined;
+  next.styles = undefined;
 
   if (target === "ass") {
-    next.header = defaultAssHeader(doc.eol);
+    const parts = defaultAssParts(doc.eol);
+    next.header = undefined;
+    next.assScriptInfo = parts.scriptInfo;
+    next.styles = parts.styles;
+    next.assStylesTail = parts.tail;
+    next.assStyleFormat = DEFAULT_STYLE_FORMAT;
     next.assFormat = ASS_EVENT_FORMAT;
-    next.assStyles = ["Default"];
     next.trailingNotes = undefined;
     next.cues = doc.cues.map((c) => ({
       ...c,
