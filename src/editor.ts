@@ -32,9 +32,10 @@ export interface SubtitleInput {
 }
 
 // A vertex of an ASS drawing, in PlayRes coordinates. `type` is how it connects from the
-// previous vertex: "m" start, "l" straight line, "b" cubic bezier (with control points).
+// previous vertex: "m" start, "l" straight line, "b" cubic bezier (with control points),
+// "s" b-spline control point (a run of consecutive "s" nodes forms one spline).
 interface DrawNode {
-  type: "m" | "l" | "b";
+  type: "m" | "l" | "b" | "s";
   px: number;
   py: number;
   c1?: { px: number; py: number };
@@ -726,6 +727,30 @@ class SubtitleEditor implements SubtitleEditorHandle {
         this.renderDetail();
       });
       bar.appendChild(align);
+
+      // Wrap style (\q): how libass breaks the line. "Default" removes the override.
+      const wrap = document.createElement("select");
+      wrap.className = "se-inalign";
+      wrap.title = t("wrapStyle");
+      for (const { value, label } of [
+        { value: "none", label: t("wrapDefault") },
+        { value: "0", label: t("wrapSmart") },
+        { value: "1", label: t("wrapEol") },
+        { value: "2", label: t("wrapNone") },
+        { value: "3", label: t("wrapSmartLow") },
+      ]) {
+        const o = document.createElement("option");
+        o.value = value;
+        o.textContent = label;
+        wrap.appendChild(o);
+      }
+      wrap.value = cue.text.match(/\\q([0-3])/)?.[1] ?? "none";
+      wrap.addEventListener("change", () => {
+        const stripped = cue.text.replace(/\{\\q[0-3]\}/g, "").replace(/\\q[0-3]/g, "").replace(/\{\}/g, "");
+        ta.value = wrap.value === "none" ? stripped : `{\\q${wrap.value}}` + stripped;
+        this.updateCue(cue.id, { text: ta.value }, true);
+      });
+      bar.appendChild(wrap);
     }
 
     bar.appendChild(iconBtn("⌖", t("positionPick"), () => this.togglePosition(cue), "se-posbtn" + (this.positionCueId === cue.id ? " on" : "")));
@@ -1118,9 +1143,10 @@ class SubtitleEditor implements SubtitleEditorHandle {
       });
       return b;
     };
-    // Toggle the selected vertex between a straight line and a bezier curve.
+    // Toggle the selected vertex between a straight line and a bezier curve (spline
+    // control points are left as-is).
     const toggleCurve = () => {
-      if (selected <= 0 || !nodes[selected]) return;
+      if (selected <= 0 || !nodes[selected] || nodes[selected].type === "s") return;
       const n = nodes[selected];
       const prev = nodes[selected - 1];
       if (n.type === "b") {
@@ -1158,7 +1184,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
   }
 
   // Parse the cue's existing \p drawing into editable vertices (PlayRes coords, with any
-  // \pos/\move offset folded in). Supports m / l / b commands; others are skipped.
+  // \pos/\move offset folded in). Supports m / l / b / s (and p, treated as extending s);
+  // the c (close) command and anything else is skipped.
   private parseDrawing(cue: Cue): DrawNode[] {
     const body = cue.text.match(/\\p[1-9][^}]*\}([^{]*)/)?.[1];
     if (!body) return [];
@@ -1189,6 +1216,11 @@ class SubtitleEditor implements SubtitleEditorHandle {
         const py = num() + oy;
         if (Number.isNaN(px) || Number.isNaN(py) || Number.isNaN(c1.px) || Number.isNaN(c2.px)) break;
         nodes.push({ type: "b", px, py, c1, c2 });
+      } else if (cmd === "s" || cmd === "p") {
+        const px = num() + ox;
+        const py = num() + oy;
+        if (Number.isNaN(px) || Number.isNaN(py)) break;
+        nodes.push({ type: "s", px, py });
       } else i++;
     }
     return nodes.length >= 2 ? nodes : [];
@@ -1198,13 +1230,16 @@ class SubtitleEditor implements SubtitleEditorHandle {
     if (nodes.length < 2) return;
     // Absolute drawing: \an7\pos(0,0) puts the drawing origin at the screen origin, so the
     // PlayRes coords map directly onto the picture. Existing style tags are preserved.
-    const cmds = nodes
-      .map((n, i) => {
-        if (i === 0) return `m ${n.px} ${n.py}`;
-        if (n.type === "b" && n.c1 && n.c2) return `b ${n.c1.px} ${n.c1.py} ${n.c2.px} ${n.c2.py} ${n.px} ${n.py}`;
-        return `l ${n.px} ${n.py}`;
-      })
-      .join(" ");
+    // A run of consecutive spline points shares one leading "s".
+    const parts: string[] = [];
+    let prev = "";
+    nodes.forEach((n, i) => {
+      if (i === 0) parts.push(`m ${n.px} ${n.py}`), (prev = "m");
+      else if (n.type === "b" && n.c1 && n.c2) parts.push(`b ${n.c1.px} ${n.c1.py} ${n.c2.px} ${n.c2.py} ${n.px} ${n.py}`), (prev = "b");
+      else if (n.type === "s") parts.push(prev === "s" ? `${n.px} ${n.py}` : `s ${n.px} ${n.py}`), (prev = "s");
+      else parts.push(`l ${n.px} ${n.py}`), (prev = "l");
+    });
+    const cmds = parts.join(" ");
     const style = cue.text.replace(/\\p[1-9][^}]*\}[^{]*(?:\{\\p0\})?/g, "").match(/\\(1c|3c|4c|1a|3a|4a|bord|shad)[^\\}]*/g)?.join("") ?? "";
     cue.text = `{\\an7\\pos(0,0)${style}\\p1}${cmds}{\\p0}`;
     if (this.detailTextarea) this.detailTextarea.value = cue.text;
@@ -1343,6 +1378,12 @@ class SubtitleEditor implements SubtitleEditorHandle {
     const fsp = field(misc, t("styleSpacing"), get(/\\fsp(-?[\d.]+)/, "0"));
     const blur = field(misc, t("blur"), get(/\\blur([\d.]+)/, "0"));
     const be = field(misc, t("edgeBlur"), get(/\\be([\d.]+)/, "0"));
+    // Per-axis border/shadow. Blank = inherit \bord/\shad; a number (incl. 0) overrides.
+    const axes = group(t("borderShadowAxes"));
+    const xbord = field(axes, `${t("borderWidth")} X`, cue.text.match(/\\xbord([\d.]+)/)?.[1] ?? "");
+    const ybord = field(axes, `${t("borderWidth")} Y`, cue.text.match(/\\ybord([\d.]+)/)?.[1] ?? "");
+    const xshad = field(axes, `${t("shadowWidth")} X`, cue.text.match(/\\xshad(-?[\d.]+)/)?.[1] ?? "");
+    const yshad = field(axes, `${t("shadowWidth")} Y`, cue.text.match(/\\yshad(-?[\d.]+)/)?.[1] ?? "");
 
     // Animate: wrap the transform in \t so it eases from the style default to these values.
     const animWrap = el("label", "se-field se-checkfield", t("animate"));
@@ -1359,11 +1400,14 @@ class SubtitleEditor implements SubtitleEditorHandle {
       const stripped = cue.text
         .replace(/\\t\([^)]*\)/g, "")
         .replace(/\\org\([^)]*\)/g, "")
-        .replace(/\\(frx|fry|frz|fscx|fscy|fsp|be|blur|fax|fay)-?[\d.]+/g, "")
+        .replace(/\\(frx|fry|frz|fscx|fscy|fsp|be|blur|fax|fay|xbord|ybord|xshad|yshad)-?[\d.]+/g, "")
         .replace(/\{\}/g, "");
       const tags: string[] = [];
       const add = (tag: string, v: string, def: number) => {
         if (v !== "" && parseFloat(v) !== def) tags.push(`\\${tag}${v}`);
+      };
+      const addRaw = (tag: string, v: string) => {
+        if (v !== "") tags.push(`\\${tag}${v}`); // no inherit-default, any value overrides
       };
       add("frx", frx.value, 0);
       add("fry", fry.value, 0);
@@ -1375,6 +1419,10 @@ class SubtitleEditor implements SubtitleEditorHandle {
       add("fsp", fsp.value, 0);
       add("blur", blur.value, 0);
       add("be", be.value, 0);
+      addRaw("xbord", xbord.value);
+      addRaw("ybord", ybord.value);
+      addRaw("xshad", xshad.value);
+      addRaw("yshad", yshad.value);
       const anims = tags.length ? (anim.checked ? `\\t(${tags.join("")})` : tags.join("")) : "";
       const origin = orgX.value !== "" && orgY.value !== "" ? `\\org(${orgX.value},${orgY.value})` : "";
       const body = origin + anims;

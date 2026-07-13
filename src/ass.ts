@@ -17,6 +17,7 @@ import {
   newCueId,
   parseTimestamp,
 } from "./cue";
+import { parseEmbeddedFonts } from "./fonts";
 
 const DEFAULT_EVENT_FORMAT = ["Layer", "Start", "End", "Style", "Name", "MarginL", "MarginR", "MarginV", "Effect", "Text"];
 export const DEFAULT_STYLE_FORMAT = [
@@ -206,14 +207,16 @@ export function styleNames(doc: SubtitleDoc): string[] {
   return (doc.styles ?? []).map((s) => s.name);
 }
 
-// Family names of fonts embedded in the file's [Fonts] section, read from the
-// "fontname: Family_B<enc>.ttf" declaration lines (the _<digits> suffix and extension
-// are stripped). The font binaries themselves are not decoded.
+// Family names of fonts embedded in the file's [Fonts] section. Each font's binary is
+// decoded and its real family name read from the name table; if that fails we fall back
+// to the "fontname: Family_B<enc>.ttf" filename with the _<digits> suffix stripped.
 export function embeddedFontNames(doc: SubtitleDoc): string[] {
   const raw = `${doc.assScriptInfo ?? ""}\n${doc.assStylesTail ?? ""}\n${doc.trailingNotes ?? ""}`;
   const names = new Set<string>();
-  for (const m of raw.matchAll(/^fontname:\s*(.+?)(?:_\d+)?\.(?:ttf|otf|ttc)\s*$/gim)) {
-    if (m[1].trim()) names.add(m[1].trim());
+  for (const f of parseEmbeddedFonts(raw)) {
+    const fallback = f.filename.replace(/(?:_\d+)?\.(?:ttf|otf|ttc)$/i, "").trim();
+    const name = f.family ?? fallback;
+    if (name) names.add(name);
   }
   return [...names];
 }
