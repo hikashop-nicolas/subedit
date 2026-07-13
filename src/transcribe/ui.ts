@@ -378,13 +378,9 @@ export function openTranslateDialog(host: TranslateHost): void {
     status.classList.add("on");
     try {
       run = runTranslate(texts, { model: modelSel.value, srcLang: src.sel.value, tgtLang: tgt.sel.value }, (p) => {
-        if (p.stage === "download") {
-          statLine.textContent = `${t("asrDownloading")} ${Math.round(p.ratio * 100)}%`;
-          barFill.style.width = `${Math.round(p.ratio * 100)}%`;
-        } else {
-          statLine.textContent = t("translating");
-          barFill.style.width = `${Math.round(p.ratio * 100)}%`;
-        }
+        const pct = Math.round(p.ratio * 100);
+        statLine.textContent = `${p.stage === "download" ? t("asrDownloading") : t("translating")} ${pct}%`;
+        barFill.style.width = `${pct}%`;
       });
       const translations = await run.done;
       const label = TRANSLATE_LANGS.find((l) => l.code === tgt.sel.value)?.label ?? tgt.sel.value;

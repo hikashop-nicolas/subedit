@@ -17,9 +17,7 @@ import {
   newCueId,
   parseTimestamp,
   sortCues,
-  visibleText,
 } from "./cue";
-import { wrapLines } from "./transcribe/segment";
 import { parseSubtitles, serializeSubtitles, convertDoc } from "./subtitles";
 import { styleNames, assColorToHex, makeDefaultStyle, uniqueStyleName, getPlayRes, embeddedFontNames } from "./ass";
 import { openStyleEditor, openScriptProperties } from "./styles-editor";
@@ -84,6 +82,28 @@ const normalizeLang = (code?: string): string => {
   if (!c || c === "und") return "";
   return c.length === 3 ? (LANG3TO2[c] ?? c) : c;
 };
+
+// Split a cue into alternating "tag" parts (override blocks {\..}, \N/\n/\h breaks, real
+// newlines, kept verbatim) and "run" parts (the visible text between them). Translating only
+// the runs preserves all inline styling, positioning and line breaks.
+type CuePart = { type: "tag" | "run"; text: string };
+const splitAssRuns = (text: string): CuePart[] => {
+  const parts: CuePart[] = [];
+  const re = /(\{[^}]*\}|\\N|\\n|\\h|\r?\n)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    if (m.index > last) parts.push({ type: "run", text: text.slice(last, m.index) });
+    parts.push({ type: "tag", text: m[0] });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push({ type: "run", text: text.slice(last) });
+  return parts;
+};
+
+// Re-wrap a translation with the original run's surrounding whitespace (the model trims it),
+// so spacing around inline tags is kept.
+const preserveEdge = (orig: string, trans: string): string => `${orig.match(/^\s*/)?.[0] ?? ""}${trans.trim()}${orig.match(/\s*$/)?.[0] ?? ""}`;
 
 // Best-effort label + language from a filename, recognising a ".<lang>." tag (e.g.
 // "movie.en.srt" -> language "en").
@@ -1933,21 +1953,37 @@ class SubtitleEditor implements SubtitleEditorHandle {
   // add the result as a new track sharing the source timing/styles.
   private openTranslate(): void {
     const source = this.activeTrack();
+    // Parse every cue into tag/run parts; collect the translatable runs (skipping drawing
+    // cues, whose "text" is vector commands). refs map each run back to its (cue, part).
+    const parsed = source.doc.cues.map((c) => (/\\p[1-9]/.test(c.text) ? null : splitAssRuns(c.text)));
+    const runs: string[] = [];
+    const refs: { c: number; p: number }[] = [];
+    parsed.forEach((parts, ci) => {
+      if (!parts) return;
+      parts.forEach((part, pi) => {
+        if (part.type === "run" && part.text.trim()) {
+          refs.push({ c: ci, p: pi });
+          runs.push(part.text);
+        }
+      });
+    });
     void import("./transcribe/ui").then(({ openTranslateDialog }) => {
       openTranslateDialog({
-        cueTexts: () => source.doc.cues.map((c) => visibleText(c.text)),
+        cueTexts: () => runs,
         sourceLanguage: () => source.language,
-        onResult: (translations, targetCode, targetLabel) => this.addTranslatedTrack(source, translations, targetCode, targetLabel),
+        onResult: (translations, targetCode, targetLabel) => this.addTranslatedTrack(source, parsed, refs, translations, targetCode, targetLabel),
       });
     });
   }
 
-  private addTranslatedTrack(source: Track, translations: string[], targetCode: string, targetLabel: string): void {
-    const doc = structuredClone(source.doc) as SubtitleDoc;
-    doc.cues = doc.cues.map((c, i) => {
-      const wrapped = wrapLines(translations[i] ?? visibleText(c.text), 42, 2);
-      return { ...c, id: newCueId(), text: doc.format === "ass" ? wrapped.replace(/\n/g, "\\N") : wrapped };
+  private addTranslatedTrack(source: Track, parsed: (CuePart[] | null)[], refs: { c: number; p: number }[], translations: string[], targetCode: string, targetLabel: string): void {
+    refs.forEach((r, i) => {
+      const t = translations[i];
+      const parts = parsed[r.c];
+      if (t != null && parts) parts[r.p] = { type: "run", text: preserveEdge(parts[r.p].text, t) };
     });
+    const doc = structuredClone(source.doc) as SubtitleDoc;
+    doc.cues = doc.cues.map((c, ci) => ({ ...c, id: newCueId(), text: parsed[ci] ? parsed[ci]!.map((p) => p.text).join("") : c.text }));
     this.addTrack(doc, targetLabel, targetCode);
   }
 
