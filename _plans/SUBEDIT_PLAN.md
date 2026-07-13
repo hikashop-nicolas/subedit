@@ -203,10 +203,79 @@ This is where subtitle quality lives; keep it pure and covered by golden tests.
 2. Decode-to-16kHz-mono from the existing mediaplay path for arbitrary containers.
 3. Segmentation quality on a couple of real clips (tune thresholds against goldens).
 
+## Media-anchored multi-track workflow (direction, 2026-07-13)
+
+Reframe: subedit is not only a single-file subtitle editor but a **project anchored
+to a media file** that holds several subtitle tracks. Motivating end-to-end case: open
+a fansub MKV (Japanese audio + an embedded English ASS sub track), generate a French
+track from the English one, and save a new MKV that keeps everything and adds the FR
+track. This unifies ASR, translation, and mux into one flow.
+
+### Data model
+
+- `Track = { id; label; language; doc: SubtitleDoc; origin: "opened" | "embedded" |
+  "transcribed" | "translated" }`. Each track is an independent, editable/re-timeable
+  `SubtitleDoc` (the existing editor model), so languages that need different
+  segmentation stay free.
+- The editor holds a `tracks: Track[]` + `activeTrackId`. Opening a single `.srt`/`.ass`
+  still yields a one-track project (byte-faithful as today). Opening a video yields a
+  multi-track project read from the container.
+- A generated track (MT/ASR) clones the source track's cue timing and fills text; after
+  that it is a normal independent track.
+
+### Open flows
+
+- Subtitle file: one track, unchanged.
+- Video (MKV first, the fansub norm): read the container with mediaplay's
+  `extractMkvInfo(bytes)` — it already returns `subtitles: [{ label, language, vtt,
+  assDoc? }]`, `audio: [...]`, and embedded `fonts`. Load each subtitle track (parse the
+  reconstructed `assDoc` for ASS, else the vtt) as a Track; wire the audio for
+  playback/waveform (existing path). MP4 text tracks: later.
+
+### Track switcher UI
+
+A tab/dropdown strip (EN | FR | JA | + generate) to switch the active track; switching
+re-points the cue list / detail / timeline / preview at that track's doc. Add-track menu:
+"Transcribe from audio…", "Translate this track…", "New empty track".
+
+### Generators (each makes a new track)
+
+- **Transcribe (ASR)** from the audio — Phase 4, done. Produces a source-language track.
+- **Translate (MT)** from an existing track — text→text, m2m100 (~500 MB, 100 langs) or
+  NLLB-200 (~800 MB, 200 langs), user-selectable; a second lazily-loaded worker mirroring
+  the Whisper one. Direct (src→tgt) when the source language is known, else pivot via
+  English. Reuses `wrapLines` to re-wrap translated text; timing carried from the source
+  track. (Model list + language-code maps already stubbed in transcribe/backend.ts.)
+
+### Save / export
+
+- Per-track: export any track as its own file (byte-faithful for opened tracks).
+- **Mux into the container** (the headline): mediabunny stream-copies video + audio and
+  writes ALL subtitle tracks — the originals (re-packed from their `assDoc`, so styling
+  survives) plus generated tracks. Streams to disk via showSaveFilePicker + StreamTarget
+  for multi-GB files. See the mux section for the required mediabunny ASS extension.
+
+### Build order
+
+1. Multi-track model + track switcher (refactor the editor to hold tracks; open-file stays
+   one track).
+2. Open-video → load embedded sub tracks + audio (extractMkvInfo).
+3. Translate-track-to-track (the MT subsystem, largely started).
+4. Mux-save with the mediabunny S_TEXT/ASS extension (see below).
+
+### Risks
+
+- The editor currently assumes a single doc; introducing tracks touches the list/detail/
+  timeline/preview wiring and the public API (getText → per-track). Keep single-file open
+  behaving exactly as now.
+- Large files (GITS ~1.7 GB, E-AC-3): demux + mux must stream, never buffer whole.
+- `extractMkvInfo`'s `assDoc` is a faithful reconstruction, not the original bytes, so an
+  embedded track's round-trip is content-faithful, not byte-faithful (acceptable).
+
 ## Mux subtitles into the video file (export)
 
-"Save into video": remux the loaded video with the edited subtitles as an
-embedded (soft) track. Always writes a NEW file (containers cannot be spliced
+"Save into video": remux the loaded video with the edited subtitles as
+embedded (soft) tracks. Always writes a NEW file (containers cannot be spliced
 in place, and it protects the source); output goes through
 showSaveFilePicker + StreamTarget so multi-GB files never sit in memory.
 
@@ -217,11 +286,21 @@ showSaveFilePicker + StreamTarget so multi-GB files never sit in memory.
 - Container support (verified on mediabunny 1.50.8): MKV, WebM and MP4 accept
   subtitle tracks, WebVTT codec only; MOV accepts none. So:
   - SRT/VTT docs: converted to WebVTT and muxed, effectively lossless.
-  - ASS docs into MKV: WebVTT would strip all styling while MKV natively
-    supports S_TEXT/ASS. Extend mediabunny's Matroska muxer with S_TEXT/ASS +
-    S_TEXT/UTF8 (codec ID + ASS header as CodecPrivate + the packed
-    "ReadOrder,Layer,Style,..." block payload); PR upstream, local patch as
-    fallback until merged.
+  - ASS docs into MKV: REQUIRED (user priority). WebVTT would strip all styling
+    while MKV natively supports S_TEXT/ASS, and mediabunny cannot stream-copy an
+    existing ASS track either, so preserving embedded ASS tracks also depends on
+    this. Extend mediabunny's Matroska muxer, which is a BOUNDED fork (its muxer
+    already writes CodecID + CodecPrivate + subtitle blocks generically):
+    1. add `'ass' -> 'S_TEXT/ASS'` (and `'utf8' -> 'S_TEXT/UTF8'` for SRT) to
+       `CODEC_STRING_MAP` + the `SubtitleCodec` union;
+    2. add an ASS `SubtitleSource` that sets CodecPrivate = the ASS header (Script
+       Info + [V4+ Styles] + the [Events] Format line) and packs each cue into the
+       Matroska payload "ReadOrder,Layer,Style,Name,MarginL,MarginR,MarginV,Effect,
+       Text" with block timestamp = start, BlockDuration = end - start.
+    This mirrors mediaplay's existing S_TEXT/ASS *reader*. Ship as a fork
+    (github:hikashop-nicolas/mediabunny, matching the mediaplay pattern) consumed
+    directly by subedit, and PR upstream. Embedded fonts from `extractMkvInfo`
+    can be re-attached so styled tracks render with their intended fonts.
   - Source container without subtitle support (or MOV/AVI): offer "save as
     MKV" instead (same stream-copy, container swap).
 - Round-trip check: reopen the produced file in the preview (mediaplay already
@@ -289,18 +368,20 @@ translate mode (two-column original/translation).
   group (vertical hidden for middle alignment); alignment "no alignment". FUTURE
   (not built): decoding embedded [Fonts] to real font names, complex 7-arg \fade,
   editing an existing drawing's points, bezier (b) drawing commands.
-- **Phase 4, ASR**: TranscribeBackend interface + Whisper (transformers.js in a
-  Worker, WebGPU/WASM, multilingual auto-detect, download-on-demand + cache, model-
-  size selector); engine-agnostic segmentToCues; empty-state + toolbar generate
-  flow with two-phase progress and live cues. See the detailed section above.
-- **Phase 5, mux export**: "save into video" remux via mediabunny stream copy
-  (WebVTT track), then the Matroska S_TEXT/ASS + S_TEXT/UTF8 muxer extension
-  (upstream PR) so ASS keeps its styling in MKV.
+- **Phase 4, ASR**: DONE. Whisper (transformers.js in a Worker, WebGPU/WASM,
+  multilingual auto-detect, download-on-demand + cache, model-size selector +
+  guidance, translate-to-English task); engine-agnostic segmentToCues; toolbar
+  generate dialog. Becomes a "generate a track" action under multi-track.
+- **Phase 5, media-anchored multi-track** (revised direction, the current focus):
+  track model + switcher; open video -> load embedded sub tracks + audio
+  (extractMkvInfo); translate-track-to-track (m2m100 / NLLB, user-selectable);
+  mux-save via the mediabunny S_TEXT/ASS fork (ASS-in-MKV is a required, not
+  optional, capability). See the media-anchored + mux sections above.
 - **Phase 6, Omnitext**: subtitle.impl.ts, format registration, preferred
   editor wiring, git dep pin, ship to Pages + APK.
-- **Later / out of scope for now**: Web Speech / cloud ASR backends, MicroDVD
-  (.sub) and other niche text formats, image-based subtitles (VobSub/PGS need OCR,
-  out of scope), WYSIWYG ASS tag editing, translate mode.
+- **Later / out of scope for now**: Web Speech / cloud ASR backends, MP4/mov_text
+  subtitle extraction, MicroDVD (.sub) and other niche text formats, image-based
+  subtitles (VobSub/PGS need OCR), hard-burn subtitles, WYSIWYG ASS tag editing.
 
 ## Risks
 
