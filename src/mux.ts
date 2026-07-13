@@ -111,14 +111,22 @@ async function runMux(media: MuxMedia, subs: MuxSubtitle[], container: MuxContai
   });
 
   await output.start();
-  for (const c of copies) {
-    let p = await c.sink.getFirstPacket();
-    let first = true;
-    while (p) {
-      await c.add(p, first ? c.meta : undefined);
-      first = false;
-      p = await c.sink.getNextPacket(p);
+  // Feed packets INTERLEAVED by timestamp across all tracks. Copying one whole track before the
+  // next forces the muxer to buffer every packet until the other tracks catch up, which on a
+  // multi-GB file exhausts memory ("Array buffer allocation failed"). Always adding the track
+  // whose next packet is earliest lets the muxer flush clusters as it goes, at low memory.
+  const heads: (EncodedPacket | null)[] = await Promise.all(copies.map((c) => c.sink.getFirstPacket()));
+  const started = copies.map(() => false);
+  for (;;) {
+    let best = -1;
+    for (let i = 0; i < copies.length; i++) {
+      if (heads[i] && (best < 0 || (heads[i] as EncodedPacket).timestamp < (heads[best] as EncodedPacket).timestamp)) best = i;
     }
+    if (best < 0) break;
+    const p = heads[best] as EncodedPacket;
+    await copies[best].add(p, started[best] ? undefined : copies[best].meta);
+    started[best] = true;
+    heads[best] = await copies[best].sink.getNextPacket(p);
   }
   for (const ss of subSrcs) await ss.src.add(ss.content);
   await output.finalize();
