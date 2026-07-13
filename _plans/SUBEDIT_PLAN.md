@@ -215,9 +215,12 @@ translate mode (two-column original/translation).
   clicking the preview), fade (\fad), karaoke (\k) editor, script-properties panel.
   Word-based alignment labels. Also shipped: transform popover (\frz/\fscx/\fscy/
   \fsp/\blur) with animate (\t); position picker click=\pos / drag=\move; timeline
-  block visuals (fade triangles + karaoke syllable marks). FUTURE (not built):
-  vector drawings (\p) with a path editor, clipping (\clip/\iclip), decoding
-  embedded [Fonts] to real font names, complex 7-arg \fade.
+  block visuals (fade triangles + karaoke syllable marks); rectangular clip
+  (\clip/\iclip drag-a-rectangle + inverse); vector drawing tool (\p, click points
+  to build a polygon); actor column; effect dropdown with per-effect params; margins
+  group (vertical hidden for middle alignment); alignment "no alignment". FUTURE
+  (not built): decoding embedded [Fonts] to real font names, complex 7-arg \fade,
+  editing an existing drawing's points, bezier (b) drawing commands.
 - **Phase 4, ASR**: TranscribeBackend interface + Web Speech implementation,
   empty-state generate flow, cue splitting heuristics.
 - **Phase 5, mux export**: "save into video" remux via mediabunny stream copy
