@@ -62,6 +62,10 @@ export interface TranslateModelInfo {
   dtype: { webgpu: DtypeSpec; wasm: DtypeSpec };
 }
 
+// q8 for both GPU and CPU. Tested q4f16 on WebGPU (4-bit decoder): it wrecked translation
+// quality (output degenerated into punctuation and repeated words). fp16 keeps quality but
+// roughly doubles the download for no quality gain over q8, which already runs fine on WebGPU.
+// So q8 is the sweet spot on both backends.
 export const TRANSLATE_MODELS: TranslateModelInfo[] = [
   { id: "Xenova/m2m100_418M", label: "M2M-100", sizeMb: 500, descKey: "mtDescM2m", scheme: "iso", dtype: { webgpu: "q8", wasm: "q8" } },
   { id: "Xenova/nllb-200-distilled-600M", label: "NLLB-200", sizeMb: 800, descKey: "mtDescNllb", scheme: "flores", dtype: { webgpu: "q8", wasm: "q8" } },
