@@ -83,6 +83,7 @@ const ICON = {
   clip: svgIcon('<path d="M2 5h9v9M5 2v3M5 5h6v6"/><rect x="2" y="8" width="6" height="6" rx="1" stroke-dasharray="2 1.5"/>'),
   draw: svgIcon('<path d="M11 3.5l1.5 1.5-7 7L3.5 13l1-2z"/><path d="M10 4.5l1.5 1.5"/>'),
   save: svgIcon('<path d="M8 2.5v7.5M5 7.5l3 3 3-3M3.5 13h9"/>'),
+  transcribe: svgIcon('<path d="M3 8v0M5.5 5.5v5M8 3.5v9M10.5 6v4M13 8v0"/><path d="M11 13.5l1 1 2-2.5" opacity="0.7"/>'),
 };
 
 let stylesInjected = false;
@@ -206,6 +207,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private rightEl!: HTMLDivElement;
   private player: MediaPlayerHandle | null = null;
   private video: HTMLMediaElement | null = null;
+  private mediaBytes: Uint8Array | null = null; // retained for auto-transcription
   private timeline: Timeline | null = null;
   private waveAbort: AbortController | null = null;
   private waveStatusEl: HTMLDivElement | null = null;
@@ -274,6 +276,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
     );
     this.scriptBtn.style.display = this.doc.format === "ass" ? "" : "none";
     bar.appendChild(this.scriptBtn);
+
+    bar.appendChild(this.iconButton(ICON.transcribe, t("autoTranscribe"), () => this.openTranscribe()));
 
     const sp = el("span", "se-sp");
     bar.appendChild(sp);
@@ -1689,6 +1693,36 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.markDirty();
   }
 
+  // Auto-transcription: lazily load the transcribe UI (which pulls in transformers.js) and
+  // open the dialog, wired to the loaded media and cue insertion.
+  private openTranscribe(): void {
+    void import("./transcribe/ui").then(({ openTranscribeDialog }) => {
+      openTranscribeDialog({
+        mediaBytes: () => this.mediaBytes,
+        hasCues: () => this.doc.cues.length > 0,
+        onResult: (cues, mode) => this.insertTranscribedCues(cues, mode),
+      });
+    });
+  }
+
+  private insertTranscribedCues(segs: { startMs: number; endMs: number; text: string }[], mode: "append" | "replace"): void {
+    if (!segs.length) return;
+    const style = this.doc.format === "ass" ? (styleNames(this.doc)[0] ?? "Default") : undefined;
+    const made = segs.map((s) => {
+      const cue = blankCue(s.startMs, s.endMs, s.text);
+      if (style) (cue.assFields ??= {}).Style = style;
+      return cue;
+    });
+    this.doc.cues = mode === "replace" ? made : sortCues([...this.doc.cues, ...made]);
+    this.rows.clear();
+    this.innerEl.textContent = "";
+    this.scrollEl.scrollTop = 0;
+    this.selectedId = null;
+    this.renderList();
+    this.select(this.doc.cues[0].id);
+    this.markDirty();
+  }
+
   private addCue(): void {
     const sel = this.selectedCue();
     const startMs = sel ? sel.endMs : (this.video?.currentTime ?? 0) * 1000;
@@ -1811,6 +1845,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     const host = el("div", "se-playerhost") as HTMLDivElement;
     this.rightEl.appendChild(host);
     const bytes = new Uint8Array(await file.arrayBuffer());
+    this.mediaBytes = bytes;
     this.player = createMediaPlayer(host, { bytes, mime: file.type, filename: file.name }, { embedded: true });
     const v = this.player.getMediaElement() ?? null;
     this.video = v;

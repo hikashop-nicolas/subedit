@@ -20,6 +20,7 @@ export interface WhisperOptions {
   device?: "webgpu" | "wasm"; // omit to auto-pick (WebGPU if available)
   dtype?: { webgpu: DtypeSpec; wasm: DtypeSpec }; // omit to use the model's recommended quantization
   timestamps?: "word" | "sentence"; // omit to use the model's default
+  task?: "transcribe" | "translate"; // "translate" outputs English regardless of source
 }
 
 // Kick off a transcription. `audio` must be 16 kHz mono PCM; it is transferred to the
@@ -65,6 +66,7 @@ export function runWhisper(audio: Float32Array, opts: WhisperOptions, onProgress
       device: opts.device,
       dtype: opts.dtype ?? info?.dtype,
       timestamps: opts.timestamps ?? info?.timestamps ?? "word",
+      task: opts.task ?? "transcribe",
     },
     [audio.buffer],
   );

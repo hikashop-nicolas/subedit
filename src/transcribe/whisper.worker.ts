@@ -22,6 +22,7 @@ interface RunMsg {
   device?: "webgpu" | "wasm";
   dtype?: { webgpu: DtypeSpec; wasm: DtypeSpec };
   timestamps?: "word" | "sentence";
+  task?: "transcribe" | "translate";
 }
 
 type Transcriber = (audio: Float32Array, opts: Record<string, unknown>) => Promise<{ text?: string; chunks?: { text: string; timestamp: [number | null, number | null] }[] }>;
@@ -67,7 +68,7 @@ ctx.onmessage = async (e: MessageEvent) => {
       stride_length_s: 5,
       return_timestamps: msg.timestamps === "sentence" ? true : "word",
       language: msg.language || null,
-      task: "transcribe",
+      task: msg.task ?? "transcribe",
     });
     const chunks: { text: string; timestamp: [number | null, number | null] }[] = out?.chunks ?? [];
     const words = chunks
