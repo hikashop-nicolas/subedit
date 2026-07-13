@@ -110,6 +110,7 @@ const ICON = {
   save: svgIcon('<path d="M8 2.5v7.5M5 7.5l3 3 3-3M3.5 13h9"/>'),
   transcribe: svgIcon('<path d="M3 8v0M5.5 5.5v5M8 3.5v9M10.5 6v4M13 8v0"/><path d="M11 13.5l1 1 2-2.5" opacity="0.7"/>'),
   translate: svgIcon('<circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2.2 1.8 2.2 10.2 0 12M8 2c-2.2 1.8-2.2 10.2 0 12"/>'),
+  savevideo: svgIcon('<rect x="2" y="3" width="12" height="8.5" rx="1"/><path d="M2 5.5h12M5 3v2.5M11 3v2.5" opacity="0.6"/><path d="M8 13v0M6.5 12l1.5 1.5 1.5-1.5"/>'),
 };
 
 let stylesInjected = false;
@@ -329,6 +330,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
     bar.appendChild(this.iconButton(ICON.transcribe, t("autoTranscribe"), () => this.openTranscribe()));
     bar.appendChild(this.iconButton(ICON.translate, t("translateTrack"), () => this.openTranslate()));
+    bar.appendChild(this.iconButton(ICON.savevideo, t("saveVideo"), () => this.saveIntoVideo()));
 
     const sp = el("span", "se-sp");
     bar.appendChild(sp);
@@ -1855,6 +1857,31 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
   private activeTrack(): Track {
     return this.tracks.find((t) => t.id === this.activeTrackId) ?? this.tracks[0];
+  }
+
+  // Mux all subtitle tracks back into the loaded media (stream-copying video/audio) and
+  // download the result. v1 outputs MKV with WebVTT subtitle tracks.
+  private saveIntoVideo(): void {
+    if (!this.mediaBytes) {
+      this.toast(t("saveVideoNeedsMedia"));
+      return;
+    }
+    const bytes = this.mediaBytes;
+    const subs = this.tracks.map((tr) => ({ name: tr.label, language: tr.language, vtt: serializeSubtitles(convertDoc(tr.doc, "vtt")) }));
+    this.toast(t("savingVideo"));
+    void import("./mux").then(async ({ muxIntoContainer }) => {
+      try {
+        const out = await muxIntoContainer(bytes, subs, "mkv");
+        const url = URL.createObjectURL(new Blob([out as BlobPart], { type: "video/x-matroska" }));
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "subtitled.mkv";
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (e) {
+        this.toast(`${t("saveVideoError")}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    });
   }
 
   private addTrack(doc: SubtitleDoc, label: string, language = ""): void {
