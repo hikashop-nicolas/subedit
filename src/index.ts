@@ -32,6 +32,7 @@ export { parseSrt, serializeSrt } from "./srt";
 export { parseVtt, serializeVtt } from "./vtt";
 export { parseAss, serializeAss } from "./ass";
 export { parseSubtitles, serializeSubtitles, detectFormat, convertDoc } from "./subtitles";
+export { extractMp4Subtitles, type Mp4SubTrack } from "./mp4subs";
 // Automatic transcription (Whisper). Loaded lazily; transformers.js stays out of the base
 // bundle until these are actually called.
 export { runWhisper, type WhisperResult, type WhisperRun, type WhisperOptions } from "./transcribe/whisper";

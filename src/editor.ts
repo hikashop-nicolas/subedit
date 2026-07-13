@@ -25,6 +25,7 @@ import { openKaraoke } from "./karaoke";
 import { setLocale, t, alignmentOptions } from "./i18n";
 import { Timeline } from "./waveform";
 import { createMediaPlayer, extractWaveformPeaks, extractMkvSubtitles, type MediaPlayerHandle, type MkvSubtitleTrack } from "mediaplay";
+import { extractMp4Subtitles } from "./mp4subs";
 
 export interface SubtitleInput {
   text: string;
@@ -2003,23 +2004,29 @@ class SubtitleEditor implements SubtitleEditorHandle {
     void this.extractWaveform(bytes);
   }
 
-  // Read subtitle tracks embedded in the media container (MKV) and load each as an editable
-  // track. A lone empty placeholder track is replaced; otherwise they are appended. No-op
-  // for containers without embedded subtitles (or that aren't Matroska).
+  // Read subtitle tracks embedded in the media container and load each as an editable track:
+  // MKV/WebM via mediaplay (styled ASS via the reconstructed assDoc), else a progressive MP4
+  // via mp4subs. A lone empty placeholder track is replaced; otherwise they are appended.
   private loadEmbeddedTracks(bytes: Uint8Array): void {
-    let subs: MkvSubtitleTrack[] = [];
+    const made: Track[] = [];
+    let mkv: MkvSubtitleTrack[] = [];
     try {
-      subs = extractMkvSubtitles(bytes);
+      mkv = extractMkvSubtitles(bytes);
     } catch {
-      return; // not an MKV, or unreadable
+      /* not an MKV */
     }
-    if (!subs.length) return;
-    const made: Track[] = subs.map((s, i) => {
+    for (const s of mkv) {
       const doc = s.assDoc ? parseSubtitles(s.assDoc, "embedded.ass") : parseSubtitles(s.vtt ?? "", "embedded.vtt");
       const lang = s.language && s.language !== "und" ? s.language : "";
-      const label = (s.label || lang || `${t("track")} ${i + 1}`).trim();
-      return { id: newTrackId(), label, language: lang, doc };
-    });
+      made.push({ id: newTrackId(), label: (s.label || lang || `${t("track")} ${made.length + 1}`).trim(), language: lang, doc });
+    }
+    if (!made.length) {
+      // Not Matroska (or no subs): try a progressive MP4/MOV.
+      for (const s of extractMp4Subtitles(bytes)) {
+        made.push({ id: newTrackId(), label: s.language || `${t("track")} ${made.length + 1}`, language: s.language, doc: parseSubtitles(s.text, "embedded.vtt") });
+      }
+    }
+    if (!made.length) return;
     const placeholder = this.tracks.length === 1 && this.tracks[0].doc.cues.length === 0;
     if (placeholder) this.tracks = made;
     else this.tracks.push(...made);

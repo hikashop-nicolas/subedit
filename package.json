@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
+    "codem-isoboxer": "^0.3.10",
     "mediaplay": "github:hikashop-nicolas/mediaplay"
   },
   "devDependencies": {
