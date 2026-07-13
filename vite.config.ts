@@ -5,6 +5,10 @@ import { defineConfig } from "vite";
 export default defineConfig({
   root: "demo",
   base: "./",
+  // mediabunny is our own fork under active change; don't let Vite pre-bundle it into a cached
+  // optimized dep, which goes stale when the fork pin changes (serving old code to the app).
+  // Serving it raw keeps the dev server in sync with the installed module.
+  optimizeDeps: { exclude: ["mediabunny"] },
   build: { outDir: "../demo-dist", emptyOutDir: true },
   test: {
     root: ".",
