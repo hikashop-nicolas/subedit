@@ -29,7 +29,7 @@
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
     "codem-isoboxer": "^0.3.10",
-    "mediabunny": "github:hikashop-nicolas/mediabunny#038b309",
+    "mediabunny": "github:hikashop-nicolas/mediabunny#113b0f2",
     "mediaplay": "github:hikashop-nicolas/mediaplay"
   },
   "devDependencies": {

@@ -139,6 +139,16 @@ describe("ASS", () => {
     expect(doc.cues[2].text).toBe("{\\i1}Styled{\\i0} line");
     expect(doc.cues[2].assFields?.Style).toBe("Title");
   });
+  it("gives a style-less cue a real style on write (empty Style would not render)", () => {
+    const doc = parseAss(ASS_GOLDEN);
+    doc.cues.push({ id: "new", startMs: 0, endMs: 2000, text: "test" }); // no assFields
+    const line = serializeAss(doc)
+      .split(/\r?\n/)
+      .find((l) => l.endsWith(",test"))!;
+    // Format is Layer,Start,End,Style,Name,... so Style is the 4th comma-separated field.
+    const style = line.replace(/^Dialogue:\s*/, "").split(",")[3];
+    expect(style).toBe("Default"); // falls back to the first defined style, not empty
+  });
   it("collects styles for the editor and picker", () => {
     const doc = parseAss(ASS_GOLDEN);
     expect(doc.styles?.map((s) => s.name)).toEqual(["Default", "Title"]);

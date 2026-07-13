@@ -173,11 +173,14 @@ function serializeStyle(style: AssStyle, format: string[]): string {
   return `Style: ${fields.join(",")}`;
 }
 
-function serializeDialogue(cue: Cue, format: string[]): string {
+function serializeDialogue(cue: Cue, format: string[], defaultStyle: string): string {
   const fields = format.map((name) => {
     if (/^Start$/i.test(name)) return formatAssTime(cue.startMs);
     if (/^End$/i.test(name)) return formatAssTime(cue.endMs);
     if (/^Text$/i.test(name)) return cue.text;
+    // A Dialogue must reference a real style; an empty Style makes renderers (libass) drop the
+    // cue. Cues added on an empty track have none, so fall back to a defined style.
+    if (/^Style$/i.test(name)) return cue.assFields?.Style || defaultStyle;
     return cue.assFields?.[name] ?? "";
   });
   return `${cue.assKind ?? "Dialogue"}: ${fields.join(",")}`;
@@ -193,9 +196,10 @@ export function serializeAss(doc: SubtitleDoc): string {
     chunks.push(serializeStyle(style, styleFormat));
   }
   if (doc.assStylesTail) chunks.push(doc.assStylesTail);
+  const defaultStyle = doc.styles?.[0]?.name ?? "Default";
   for (const cue of doc.cues) {
     if (cue.notesBefore) chunks.push(cue.notesBefore);
-    chunks.push(serializeDialogue(cue, eventFormat));
+    chunks.push(serializeDialogue(cue, eventFormat, defaultStyle));
   }
   if (doc.trailingNotes) chunks.push(doc.trailingNotes);
   let out = chunks.join(eol);
