@@ -1867,20 +1867,23 @@ class SubtitleEditor implements SubtitleEditorHandle {
       return;
     }
     const bytes = this.mediaBytes;
-    // MKV keeps ASS tracks styled (S_TEXT/ASS); other formats go out as WebVTT.
+    // Save back into the source's container. MKV keeps ASS tracks styled (S_TEXT/ASS); MP4
+    // and everything else can only hold plain-text WebVTT.
+    const container = bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3 ? "mkv" : "mp4";
     const subs = this.tracks.map((tr) =>
-      tr.doc.format === "ass"
+      container === "mkv" && tr.doc.format === "ass"
         ? { name: tr.label, language: tr.language, kind: "ass" as const, content: serializeSubtitles(tr.doc) }
         : { name: tr.label, language: tr.language, kind: "vtt" as const, content: serializeSubtitles(convertDoc(tr.doc, "vtt")) },
     );
     this.toast(t("savingVideo"));
     void import("./mux").then(async ({ muxIntoContainer }) => {
       try {
-        const out = await muxIntoContainer(bytes, subs, "mkv");
-        const url = URL.createObjectURL(new Blob([out as BlobPart], { type: "video/x-matroska" }));
+        const out = await muxIntoContainer(bytes, subs, container);
+        const mime = container === "mkv" ? "video/x-matroska" : "video/mp4";
+        const url = URL.createObjectURL(new Blob([out as BlobPart], { type: mime }));
         const a = document.createElement("a");
         a.href = url;
-        a.download = "subtitled.mkv";
+        a.download = `subtitled.${container}`;
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       } catch (e) {
