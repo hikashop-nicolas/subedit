@@ -27,6 +27,7 @@ import { Timeline } from "./waveform";
 import { createMediaPlayer, extractWaveformPeaks, extractMkvSubtitles, type MediaPlayerHandle, type MkvSubtitleTrack } from "mediaplay";
 import { extractMp4Subtitles } from "./mp4subs";
 import { runTranslate, type TranslateRun } from "./transcribe/translate";
+import { buildTranslationPlan, applyUniqueTranslation, rebuildCueText, type TranslationPlan } from "./translate-plan";
 
 export interface SubtitleInput {
   text: string;
@@ -82,10 +83,9 @@ interface TranslationJob {
   stage: "download" | "translate";
   device?: "webgpu" | "wasm";
   ratio: number;
-  parsed: (CuePart[] | null)[];
-  refs: { c: number; p: number }[];
-  done: number; // runs translated so far
-  total: number; // total translatable runs
+  plan: TranslationPlan;
+  done: number; // unique texts translated so far
+  total: number; // total unique texts to translate
 }
 
 let trackSeq = 0;
@@ -99,28 +99,6 @@ const normalizeLang = (code?: string): string => {
   if (!c || c === "und") return "";
   return c.length === 3 ? (LANG3TO2[c] ?? c) : c;
 };
-
-// Split a cue into alternating "tag" parts (override blocks {\..}, \N/\n/\h breaks, real
-// newlines, kept verbatim) and "run" parts (the visible text between them). Translating only
-// the runs preserves all inline styling, positioning and line breaks.
-type CuePart = { type: "tag" | "run"; text: string };
-const splitAssRuns = (text: string): CuePart[] => {
-  const parts: CuePart[] = [];
-  const re = /(\{[^}]*\}|\\N|\\n|\\h|\r?\n)/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) {
-    if (m.index > last) parts.push({ type: "run", text: text.slice(last, m.index) });
-    parts.push({ type: "tag", text: m[0] });
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) parts.push({ type: "run", text: text.slice(last) });
-  return parts;
-};
-
-// Re-wrap a translation with the original run's surrounding whitespace (the model trims it),
-// so spacing around inline tags is kept.
-const preserveEdge = (orig: string, trans: string): string => `${orig.match(/^\s*/)?.[0] ?? ""}${trans.trim()}${orig.match(/\s*$/)?.[0] ?? ""}`;
 
 // Best-effort label + language from a filename, recognising a ".<lang>." tag (e.g.
 // "movie.en.srt" -> language "en").
@@ -1984,25 +1962,15 @@ class SubtitleEditor implements SubtitleEditorHandle {
   // add the result as a new track sharing the source timing/styles.
   private openTranslate(): void {
     const source = this.activeTrack();
-    // Parse every cue into tag/run parts; collect the translatable runs (skipping drawing
-    // cues, whose "text" is vector commands). refs map each run back to its (cue, part).
-    const parsed = source.doc.cues.map((c) => (/\\p[1-9]/.test(c.text) ? null : splitAssRuns(c.text)));
-    const runs: string[] = [];
-    const refs: { c: number; p: number }[] = [];
-    parsed.forEach((parts, ci) => {
-      if (!parts) return;
-      parts.forEach((part, pi) => {
-        if (part.type === "run" && part.text.trim()) {
-          refs.push({ c: ci, p: pi });
-          runs.push(part.text);
-        }
-      });
-    });
+    // Build a de-duplicated translation plan: split each cue into tag/run parts (only runs are
+    // translated, tags and breaks are preserved), skip drawing cues, and translate each unique
+    // run string once, fanning the result out to every cue that shares it.
+    const plan = buildTranslationPlan(source.doc.cues.map((c) => c.text));
     void import("./transcribe/ui").then(({ openTranslateDialog }) => {
       openTranslateDialog({
-        cueTexts: () => runs,
+        cueTexts: () => plan.uniqueTexts,
         sourceLanguage: () => source.language,
-        onStart: (opts, targetCode, targetLabel) => this.startTranslateJob(source, parsed, refs, runs, opts, targetCode, targetLabel),
+        onStart: (opts, targetCode, targetLabel) => this.startTranslateJob(source, plan, opts, targetCode, targetLabel),
       });
     });
   }
@@ -2012,28 +1980,26 @@ class SubtitleEditor implements SubtitleEditorHandle {
   // batches arrive. The user can keep editing meanwhile.
   private startTranslateJob(
     source: Track,
-    parsed: (CuePart[] | null)[],
-    refs: { c: number; p: number }[],
-    runs: string[],
+    plan: TranslationPlan,
     opts: { model: string; srcLang: string; tgtLang: string },
     targetCode: string,
     targetLabel: string,
   ): void {
     const doc = structuredClone(source.doc) as SubtitleDoc;
-    doc.cues = doc.cues.map((c, ci) => ({ ...c, id: newCueId(), text: parsed[ci] ? parsed[ci]!.map((p) => p.text).join("") : c.text }));
+    doc.cues = doc.cues.map((c, ci) => ({ ...c, id: newCueId(), text: rebuildCueText(plan, ci) ?? c.text }));
     const track: Track = {
       id: newTrackId(),
       label: targetLabel,
       language: targetCode,
       doc,
-      job: { run: null as unknown as TranslateRun, state: "running", stage: "download", ratio: 0, parsed, refs, done: 0, total: runs.length },
+      job: { run: null as unknown as TranslateRun, state: "running", stage: "download", ratio: 0, plan, done: 0, total: plan.uniqueTexts.length },
     };
     this.tracks.push(track);
     this.switchTrack(track.id);
     this.markDirty();
 
     const job = track.job!;
-    job.run = runTranslate(runs, opts, {
+    job.run = runTranslate(plan.uniqueTexts, opts, {
       onProgress: (p) => {
         job.stage = p.stage === "download" ? "download" : "translate";
         job.ratio = p.ratio;
@@ -2054,25 +2020,23 @@ class SubtitleEditor implements SubtitleEditorHandle {
       });
   }
 
-  // Splice a translated batch into the track: apply each run to its parsed part, then rebuild
-  // the affected cues' text. Re-renders the list/preview only when this track is showing.
+  // Splice a translated batch into the track: each entry is one unique text, so fan it out to
+  // every cue/part that shares it, then rebuild the affected cues' text. Re-renders the
+  // list/preview only when this track is showing.
   private applyTranslatedBatch(track: Track, start: number, texts: string[]): void {
     const job = track.job;
     if (!job) return;
     const touched = new Set<number>();
     texts.forEach((tx, k) => {
-      const ref = job.refs[start + k];
-      if (!ref) return;
-      const parts = job.parsed[ref.c];
-      if (parts && tx != null) {
-        parts[ref.p] = { type: "run", text: preserveEdge(parts[ref.p].text, tx) };
-        touched.add(ref.c);
-      }
+      const u = start + k;
+      if (u >= job.plan.uniqueTexts.length) return;
       job.done += 1;
+      if (tx == null) return;
+      for (const ci of applyUniqueTranslation(job.plan, u, tx)) touched.add(ci);
     });
     touched.forEach((ci) => {
-      const parts = job.parsed[ci];
-      if (parts) track.doc.cues[ci].text = parts.map((p) => p.text).join("");
+      const text = rebuildCueText(job.plan, ci);
+      if (text != null) track.doc.cues[ci].text = text;
     });
     this.markDirty();
     if (track.id === this.activeTrackId) {
@@ -2096,8 +2060,9 @@ class SubtitleEditor implements SubtitleEditorHandle {
     const job = track.job;
     if (job) {
       // Final pass in case a batch straddled the last render.
-      job.parsed.forEach((parts, ci) => {
-        if (parts) track.doc.cues[ci].text = parts.map((p) => p.text).join("");
+      job.plan.parsed.forEach((_parts, ci) => {
+        const text = rebuildCueText(job.plan, ci);
+        if (text != null) track.doc.cues[ci].text = text;
       });
     }
     track.job = undefined;
