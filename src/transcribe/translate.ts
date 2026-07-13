@@ -1,11 +1,14 @@
 // Main-thread driver for the translation worker. Maps the common language codes to the
 // chosen model's scheme (ISO for m2m100, FLORES for NLLB), spawns the worker, streams
-// progress, and resolves with the translated texts. Cancel terminates the worker.
+// per-batch results and progress, and resolves when the run finishes. The run can be paused,
+// resumed and stopped so the editor can drive it as a live background job.
 import { translateModel, mtLangCode, type TranscribeProgress } from "./backend";
 
 export interface TranslateRun {
-  cancel(): void;
-  done: Promise<string[]>;
+  cancel(): void; // terminate immediately (drops the worker)
+  pause(): void;
+  resume(): void;
+  done: Promise<{ stopped: boolean }>;
 }
 
 export interface TranslateOptions {
@@ -15,23 +18,33 @@ export interface TranslateOptions {
   device?: "webgpu" | "wasm";
 }
 
-export function runTranslate(texts: string[], opts: TranslateOptions, onProgress?: (p: TranscribeProgress) => void): TranslateRun {
+export interface TranslateCallbacks {
+  onProgress?: (p: TranscribeProgress) => void;
+  // Called for each translated batch as it lands: texts[k] is the translation of input
+  // (start + k), so the caller can fill results live.
+  onPartial?: (start: number, texts: string[]) => void;
+}
+
+export function runTranslate(texts: string[], opts: TranslateOptions, cb: TranslateCallbacks = {}): TranslateRun {
   const info = translateModel(opts.model);
   const scheme = info?.scheme ?? "iso";
   const worker = new Worker(new URL("./translate.worker.ts", import.meta.url), { type: "module" });
 
-  const done = new Promise<string[]>((resolve, reject) => {
+  const done = new Promise<{ stopped: boolean }>((resolve, reject) => {
     worker.onmessage = (e: MessageEvent) => {
       const m = e.data;
       switch (m.type) {
         case "progress":
-          onProgress?.({ stage: m.stage, ratio: m.ratio, file: m.file });
+          cb.onProgress?.({ stage: m.stage, ratio: m.ratio, file: m.file });
+          break;
+        case "partial":
+          cb.onPartial?.(m.start, m.texts);
           break;
         case "device":
-          onProgress?.({ stage: "transcribe", ratio: 0 });
+          cb.onProgress?.({ stage: "transcribe", ratio: 0 });
           break;
         case "done":
-          resolve(m.texts);
+          resolve({ stopped: !!m.stopped });
           worker.terminate();
           break;
         case "error":
@@ -56,5 +69,10 @@ export function runTranslate(texts: string[], opts: TranslateOptions, onProgress
     dtype: info?.dtype,
   });
 
-  return { cancel: () => worker.terminate(), done };
+  return {
+    cancel: () => worker.terminate(),
+    pause: () => worker.postMessage({ type: "pause" }),
+    resume: () => worker.postMessage({ type: "resume" }),
+    done,
+  };
 }

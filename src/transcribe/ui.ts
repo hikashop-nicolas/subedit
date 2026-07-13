@@ -3,7 +3,6 @@
 // transcribe modules (which pull in transformers.js) behind this lazily-imported file.
 import { WHISPER_MODELS, DEFAULT_WHISPER_MODEL, TRANSLATE_MODELS, DEFAULT_TRANSLATE_MODEL, TRANSLATE_LANGS } from "./backend";
 import { runWhisper, type WhisperRun } from "./whisper";
-import { runTranslate, type TranslateRun } from "./translate";
 import { decodeToMono16k } from "./audio";
 import { segmentToCues, type SegCue } from "./segment";
 import { t } from "../i18n";
@@ -260,12 +259,13 @@ export function openTranscribeDialog(host: TranscribeHost): void {
 export interface TranslateHost {
   cueTexts(): string[]; // the source track's per-cue visible text
   sourceLanguage(): string; // "" if unknown
-  onResult(translations: string[], targetCode: string, targetLabel: string): void;
+  // Kick off the translation as a background job. The dialog closes immediately; progress and
+  // pause/stop controls live on the new track.
+  onStart(opts: { model: string; srcLang: string; tgtLang: string }, targetCode: string, targetLabel: string): void;
 }
 
 export function openTranslateDialog(host: TranslateHost): void {
   injectCss();
-  let run: TranslateRun | null = null;
 
   const back = document.createElement("div");
   back.className = "se-asr-back";
@@ -325,17 +325,6 @@ export function openTranslateDialog(host: TranslateHost): void {
   syncDesc();
   body.appendChild(modelDesc);
 
-  const status = document.createElement("div");
-  status.className = "se-asr-status";
-  const bar = document.createElement("div");
-  bar.className = "se-asr-bar";
-  const barFill = document.createElement("div");
-  bar.appendChild(barFill);
-  const statLine = document.createElement("div");
-  statLine.className = "se-asr-statline";
-  status.append(bar, statLine);
-  body.appendChild(status);
-
   const err = document.createElement("div");
   err.className = "se-asr-err";
   body.appendChild(err);
@@ -353,44 +342,26 @@ export function openTranslateDialog(host: TranslateHost): void {
   modal.append(head, body, foot);
   document.body.appendChild(back);
 
-  const close = () => {
-    run?.cancel();
-    back.remove();
-  };
+  const close = () => back.remove();
   cancelBtn.addEventListener("click", close);
   back.addEventListener("click", (e) => {
     if (e.target === back) close();
   });
 
-  startBtn.addEventListener("click", async () => {
+  startBtn.addEventListener("click", () => {
     err.textContent = "";
     if (src.sel.value === tgt.sel.value) {
       err.textContent = t("translateSameLang");
       return;
     }
-    const texts = host.cueTexts();
-    if (!texts.length) {
+    if (!host.cueTexts().length) {
       err.textContent = t("translateNoCues");
       return;
     }
-    startBtn.disabled = true;
-    src.sel.disabled = tgt.sel.disabled = modelSel.disabled = true;
-    status.classList.add("on");
-    try {
-      run = runTranslate(texts, { model: modelSel.value, srcLang: src.sel.value, tgtLang: tgt.sel.value }, (p) => {
-        const pct = Math.round(p.ratio * 100);
-        statLine.textContent = `${p.stage === "download" ? t("asrDownloading") : t("translating")} ${pct}%`;
-        barFill.style.width = `${pct}%`;
-      });
-      const translations = await run.done;
-      const label = TRANSLATE_LANGS.find((l) => l.code === tgt.sel.value)?.label ?? tgt.sel.value;
-      host.onResult(translations, tgt.sel.value, label);
-      back.remove();
-    } catch (e) {
-      err.textContent = `${t("translateError")}: ${e instanceof Error ? e.message : String(e)}`;
-      status.classList.remove("on");
-      startBtn.disabled = false;
-      src.sel.disabled = tgt.sel.disabled = modelSel.disabled = false;
-    }
+    const label = TRANSLATE_LANGS.find((l) => l.code === tgt.sel.value)?.label ?? tgt.sel.value;
+    // Hand off to the editor: it creates the track and runs the job in the background. The
+    // dialog's work is done, so close it.
+    host.onStart({ model: modelSel.value, srcLang: src.sel.value, tgtLang: tgt.sel.value }, tgt.sel.value, label);
+    back.remove();
   });
 }

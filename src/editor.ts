@@ -26,6 +26,7 @@ import { setLocale, t, alignmentOptions } from "./i18n";
 import { Timeline } from "./waveform";
 import { createMediaPlayer, extractWaveformPeaks, extractMkvSubtitles, type MediaPlayerHandle, type MkvSubtitleTrack } from "mediaplay";
 import { extractMp4Subtitles } from "./mp4subs";
+import { runTranslate, type TranslateRun } from "./transcribe/translate";
 
 export interface SubtitleInput {
   text: string;
@@ -69,6 +70,21 @@ export interface Track {
   label: string;
   language: string;
   doc: SubtitleDoc;
+  job?: TranslationJob;
+}
+
+// An in-progress background translation attached to a track. The track's cues are filled live
+// as the worker streams batches; `parsed`/`refs` map each translatable run back to its cue so
+// results can be spliced in without disturbing tags. Can be paused/resumed/stopped.
+interface TranslationJob {
+  run: TranslateRun;
+  state: "running" | "paused";
+  stage: "download" | "translate";
+  ratio: number;
+  parsed: (CuePart[] | null)[];
+  refs: { c: number; p: number }[];
+  done: number; // runs translated so far
+  total: number; // total translatable runs
 }
 
 let trackSeq = 0;
@@ -154,10 +170,19 @@ function injectStyles(): void {
 .se-toolbar .se-sp{flex:1 1 auto;}
 .se-tracks{display:flex;gap:4px;align-items:center;padding:4px 8px;border-bottom:1px solid var(--se-border);background:var(--se-head);overflow-x:auto;flex-shrink:0;}
 .se-toolbar{flex-shrink:0;}
-.se-track{display:flex;align-items:center;gap:4px;padding:3px 4px 3px 10px;border:1px solid var(--se-border);border-radius:6px;background:var(--se-bg);white-space:nowrap;flex-shrink:0;}
+.se-track{position:relative;display:flex;align-items:center;gap:4px;padding:3px 4px 3px 10px;border:1px solid var(--se-border);border-radius:6px;background:var(--se-bg);white-space:nowrap;flex-shrink:0;overflow:hidden;}
 .se-track-add{flex-shrink:0;}
 .se-track.on{border-color:var(--se-accent);background:var(--se-sel);color:var(--se-sel-fg);}
+.se-track.busy{border-color:var(--se-accent);}
+.se-track-prog{position:absolute;left:0;bottom:0;height:2px;background:var(--se-accent);transition:width .2s linear;pointer-events:none;}
 .se-track-name{cursor:pointer;font-size:12px;}
+.se-jobstrip{display:none;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid var(--se-border);background:var(--se-head);flex-shrink:0;}
+.se-jobstrip.on{display:flex;}
+.se-job-label{font-size:12px;color:var(--se-muted);white-space:nowrap;}
+.se-job-bar{flex:1 1 auto;height:6px;border-radius:3px;background:var(--se-border);overflow:hidden;}
+.se-job-fill{height:100%;background:var(--se-accent);transition:width .2s linear;}
+.se-job-btn{border:1px solid var(--se-border);background:var(--se-bg);color:var(--se-fg);cursor:pointer;width:26px;height:24px;border-radius:6px;font-size:12px;line-height:1;flex-shrink:0;}
+.se-job-btn:hover{border-color:var(--se-accent);color:var(--se-accent);}
 .se-track-x{border:none;background:none;color:var(--se-muted);cursor:pointer;font-size:14px;line-height:1;padding:0 3px;border-radius:4px;}
 .se-track-x:hover{color:var(--se-bad);}
 .se-track-add{border:1px dashed var(--se-border);background:none;color:var(--se-muted);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:15px;line-height:1;}
@@ -280,6 +305,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private scriptBtn!: HTMLButtonElement;
   private fmtSel!: HTMLSelectElement;
   private trackBar!: HTMLDivElement;
+  private jobStrip!: HTMLDivElement;
+  private previewPushTimer: number | null = null;
   private leftEl!: HTMLDivElement;
   private headEl!: HTMLDivElement;
   private rightEl!: HTMLDivElement;
@@ -380,18 +407,26 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private buildTrackBar(): void {
     this.trackBar = el("div", "se-tracks") as HTMLDivElement;
     this.root.appendChild(this.trackBar);
+    this.jobStrip = el("div", "se-jobstrip") as HTMLDivElement;
+    this.root.appendChild(this.jobStrip);
     this.renderTrackBar();
+    this.renderJobStrip();
   }
 
   private renderTrackBar(): void {
     this.trackBar.textContent = "";
     // A lone track still shows its tab so the "+" (add track) stays discoverable.
     for (const tr of this.tracks) {
-      const tab = el("div", "se-track" + (tr.id === this.activeTrackId ? " on" : ""));
+      const tab = el("div", "se-track" + (tr.id === this.activeTrackId ? " on" : "") + (tr.job ? " busy" : ""));
       const name = el("span", "se-track-name", tr.language ? `${tr.label} (${tr.language})` : tr.label);
       name.addEventListener("click", () => this.switchTrack(tr.id));
       name.addEventListener("dblclick", () => this.renameTrack(tr.id));
       tab.appendChild(name);
+      if (tr.job) {
+        const prog = el("div", "se-track-prog");
+        prog.style.width = `${Math.round(tr.job.ratio * 100)}%`;
+        tab.appendChild(prog);
+      }
       if (this.tracks.length > 1) {
         const close = el("button", "se-track-x", "×");
         close.title = t("removeTrack");
@@ -419,6 +454,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.refreshForActiveDoc();
     this.pushSubtitles();
     this.renderTrackBar();
+    this.renderJobStrip();
   }
 
   private addEmptyTrack(): void {
@@ -434,6 +470,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     if (this.tracks.length <= 1) return;
     const idx = this.tracks.findIndex((t) => t.id === id);
     if (idx < 0) return;
+    this.tracks[idx].job?.run.cancel();
     this.tracks.splice(idx, 1);
     if (this.activeTrackId === id) {
       this.activeTrackId = this.tracks[Math.min(idx, this.tracks.length - 1)].id;
@@ -1942,13 +1979,6 @@ class SubtitleEditor implements SubtitleEditorHandle {
     }
   }
 
-  private addTrack(doc: SubtitleDoc, label: string, language = ""): void {
-    const id = newTrackId();
-    this.tracks.push({ id, label, language, doc });
-    this.switchTrack(id);
-    this.markDirty();
-  }
-
   // Translate the active track: lazily open the translate dialog over its cue texts, then
   // add the result as a new track sharing the source timing/styles.
   private openTranslate(): void {
@@ -1971,20 +2001,155 @@ class SubtitleEditor implements SubtitleEditorHandle {
       openTranslateDialog({
         cueTexts: () => runs,
         sourceLanguage: () => source.language,
-        onResult: (translations, targetCode, targetLabel) => this.addTranslatedTrack(source, parsed, refs, translations, targetCode, targetLabel),
+        onStart: (opts, targetCode, targetLabel) => this.startTranslateJob(source, parsed, refs, runs, opts, targetCode, targetLabel),
       });
     });
   }
 
-  private addTranslatedTrack(source: Track, parsed: (CuePart[] | null)[], refs: { c: number; p: number }[], translations: string[], targetCode: string, targetLabel: string): void {
-    refs.forEach((r, i) => {
-      const t = translations[i];
-      const parts = parsed[r.c];
-      if (t != null && parts) parts[r.p] = { type: "run", text: preserveEdge(parts[r.p].text, t) };
-    });
+  // Create the target track immediately (cloning the source timing/styles, cues still holding
+  // the source text) and run the translation as a live background job that fills the cues as
+  // batches arrive. The user can keep editing meanwhile.
+  private startTranslateJob(
+    source: Track,
+    parsed: (CuePart[] | null)[],
+    refs: { c: number; p: number }[],
+    runs: string[],
+    opts: { model: string; srcLang: string; tgtLang: string },
+    targetCode: string,
+    targetLabel: string,
+  ): void {
     const doc = structuredClone(source.doc) as SubtitleDoc;
     doc.cues = doc.cues.map((c, ci) => ({ ...c, id: newCueId(), text: parsed[ci] ? parsed[ci]!.map((p) => p.text).join("") : c.text }));
-    this.addTrack(doc, targetLabel, targetCode);
+    const track: Track = {
+      id: newTrackId(),
+      label: targetLabel,
+      language: targetCode,
+      doc,
+      job: { run: null as unknown as TranslateRun, state: "running", stage: "download", ratio: 0, parsed, refs, done: 0, total: runs.length },
+    };
+    this.tracks.push(track);
+    this.switchTrack(track.id);
+    this.markDirty();
+
+    const job = track.job!;
+    job.run = runTranslate(runs, opts, {
+      onProgress: (p) => {
+        job.stage = p.stage === "download" ? "download" : "translate";
+        job.ratio = p.ratio;
+        this.renderJobStrip();
+        this.renderTrackBar();
+      },
+      onPartial: (start, texts) => this.applyTranslatedBatch(track, start, texts),
+    });
+    job.run.done
+      .then((res) => this.finishTranslateJob(track, res.stopped))
+      .catch((e) => {
+        this.toast(`${t("translateError")}: ${e instanceof Error ? e.message : String(e)}`);
+        this.finishTranslateJob(track, true);
+      });
+  }
+
+  // Splice a translated batch into the track: apply each run to its parsed part, then rebuild
+  // the affected cues' text. Re-renders the list/preview only when this track is showing.
+  private applyTranslatedBatch(track: Track, start: number, texts: string[]): void {
+    const job = track.job;
+    if (!job) return;
+    const touched = new Set<number>();
+    texts.forEach((tx, k) => {
+      const ref = job.refs[start + k];
+      if (!ref) return;
+      const parts = job.parsed[ref.c];
+      if (parts && tx != null) {
+        parts[ref.p] = { type: "run", text: preserveEdge(parts[ref.p].text, tx) };
+        touched.add(ref.c);
+      }
+      job.done += 1;
+    });
+    touched.forEach((ci) => {
+      const parts = job.parsed[ci];
+      if (parts) track.doc.cues[ci].text = parts.map((p) => p.text).join("");
+    });
+    this.markDirty();
+    if (track.id === this.activeTrackId) {
+      this.renderWindow();
+      this.schedulePreviewPush();
+    }
+    this.renderJobStrip();
+    this.renderTrackBar();
+  }
+
+  // Coalesce the (relatively costly) live subtitle re-push to the preview during a job.
+  private schedulePreviewPush(): void {
+    if (this.previewPushTimer != null) return;
+    this.previewPushTimer = window.setTimeout(() => {
+      this.previewPushTimer = null;
+      this.pushSubtitles();
+    }, 400);
+  }
+
+  private finishTranslateJob(track: Track, stopped: boolean): void {
+    const job = track.job;
+    if (job) {
+      // Final pass in case a batch straddled the last render.
+      job.parsed.forEach((parts, ci) => {
+        if (parts) track.doc.cues[ci].text = parts.map((p) => p.text).join("");
+      });
+    }
+    track.job = undefined;
+    this.renderTrackBar();
+    this.renderJobStrip();
+    if (track.id === this.activeTrackId) {
+      this.renderWindow();
+      this.pushSubtitles();
+    }
+    this.toast(stopped ? t("translateStopped") : t("translateDone"));
+    this.markDirty();
+  }
+
+  private toggleTranslatePause(track: Track): void {
+    const job = track.job;
+    if (!job) return;
+    if (job.state === "paused") {
+      job.state = "running";
+      job.run.resume();
+    } else {
+      job.state = "paused";
+      job.run.pause();
+    }
+    this.renderJobStrip();
+  }
+
+  private stopTranslateJob(track: Track): void {
+    if (!track.job) return;
+    track.job.run.cancel(); // batches already applied stay; the rest keep the source text
+    this.finishTranslateJob(track, true);
+  }
+
+  // The strip under the track bar: progress + pause/resume/stop for the active track's job.
+  private renderJobStrip(): void {
+    if (!this.jobStrip) return;
+    this.jobStrip.textContent = "";
+    const track = this.activeTrack();
+    const job = track?.job;
+    if (!job) {
+      this.jobStrip.classList.remove("on");
+      return;
+    }
+    this.jobStrip.classList.add("on");
+    const pct = Math.round(job.ratio * 100);
+    const text = job.stage === "download" ? `${t("asrDownloading")} ${pct}%` : `${t("translating")} ${job.done}/${job.total} (${pct}%)`;
+    const lab = el("span", "se-job-label", text);
+    const bar = el("div", "se-job-bar");
+    const fill = el("div", "se-job-fill");
+    fill.style.width = `${pct}%`;
+    bar.appendChild(fill);
+    const pauseBtn = el("button", "se-job-btn", job.state === "paused" ? "▶" : "⏸");
+    pauseBtn.title = job.state === "paused" ? t("jobResume") : t("jobPause");
+    pauseBtn.addEventListener("click", () => this.toggleTranslatePause(track));
+    const stopBtn = el("button", "se-job-btn", "⏹");
+    stopBtn.title = t("jobStop");
+    stopBtn.addEventListener("click", () => this.stopTranslateJob(track));
+    this.jobStrip.append(lab, bar, pauseBtn, stopBtn);
   }
 
   private insertTranscribedCues(segs: { startMs: number; endMs: number; text: string }[], mode: "append" | "replace"): void {
