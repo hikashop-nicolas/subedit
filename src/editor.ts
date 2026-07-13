@@ -76,6 +76,15 @@ export interface Track {
 let trackSeq = 0;
 const newTrackId = (): string => `tr${(trackSeq += 1)}`;
 
+// Embedded tracks tag language as ISO 639-2 (e.g. "eng"); map to the 2-letter code the UI
+// (track label, translate source auto-detect) uses. "und"/unknown -> "".
+const LANG3TO2: Record<string, string> = { eng: "en", fra: "fr", fre: "fr", jpn: "ja", spa: "es", deu: "de", ger: "de", ita: "it", por: "pt", nld: "nl", dut: "nl", rus: "ru", zho: "zh", chi: "zh", kor: "ko", ara: "ar" };
+const normalizeLang = (code?: string): string => {
+  const c = (code ?? "").toLowerCase().replace(/[^a-z]/g, "");
+  if (!c || c === "und") return "";
+  return c.length === 3 ? (LANG3TO2[c] ?? c) : c;
+};
+
 // Best-effort label + language from a filename, recognising a ".<lang>." tag (e.g.
 // "movie.en.srt" -> language "en").
 function deriveTrackMeta(filename?: string): { label: string; language: string } {
@@ -2108,13 +2117,14 @@ class SubtitleEditor implements SubtitleEditorHandle {
     }
     for (const s of mkv) {
       const doc = s.assDoc ? parseSubtitles(s.assDoc, "embedded.ass") : parseSubtitles(s.vtt ?? "", "embedded.vtt");
-      const lang = s.language && s.language !== "und" ? s.language : "";
+      const lang = normalizeLang(s.language);
       made.push({ id: newTrackId(), label: (s.label || lang || `${t("track")} ${made.length + 1}`).trim(), language: lang, doc });
     }
     if (!made.length) {
       // Not Matroska (or no subs): try a progressive MP4/MOV.
       for (const s of extractMp4Subtitles(bytes)) {
-        made.push({ id: newTrackId(), label: s.language || `${t("track")} ${made.length + 1}`, language: s.language, doc: parseSubtitles(s.text, "embedded.vtt") });
+        const lang = normalizeLang(s.language);
+        made.push({ id: newTrackId(), label: lang || `${t("track")} ${made.length + 1}`, language: lang, doc: parseSubtitles(s.text, "embedded.vtt") });
       }
     }
     if (!made.length) return;
