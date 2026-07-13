@@ -1859,9 +1859,10 @@ class SubtitleEditor implements SubtitleEditorHandle {
     return this.tracks.find((t) => t.id === this.activeTrackId) ?? this.tracks[0];
   }
 
-  // Mux all subtitle tracks back into the loaded media (stream-copying video/audio) and
-  // download the result. v1 outputs MKV with WebVTT subtitle tracks.
-  private saveIntoVideo(): void {
+  // Mux all subtitle tracks back into the loaded media (stream-copying video/audio) and save
+  // it. When the File System Access API is available the output streams straight to the
+  // chosen file (so multi-GB saves never buffer in RAM); otherwise it downloads a blob.
+  private async saveIntoVideo(): Promise<void> {
     if (!this.mediaBytes) {
       this.toast(t("saveVideoNeedsMedia"));
       return;
@@ -1875,9 +1876,26 @@ class SubtitleEditor implements SubtitleEditorHandle {
         ? { name: tr.label, language: tr.language, kind: "ass" as const, content: serializeSubtitles(tr.doc) }
         : { name: tr.label, language: tr.language, kind: "vtt" as const, content: serializeSubtitles(convertDoc(tr.doc, "vtt")) },
     );
-    this.toast(t("savingVideo"));
-    void import("./mux").then(async ({ muxIntoContainer }) => {
+
+    // Ask for the destination file synchronously (keeps the click's user activation) before
+    // the async work begins.
+    const picker = (window as unknown as { showSaveFilePicker?: (o: unknown) => Promise<FileSystemFileHandle> }).showSaveFilePicker;
+    let handle: FileSystemFileHandle | null = null;
+    if (picker) {
       try {
+        handle = await picker.call(window, { suggestedName: `subtitled.${container}`, types: [{ description: container.toUpperCase(), accept: { [container === "mkv" ? "video/x-matroska" : "video/mp4"]: [`.${container}`] } }] });
+      } catch {
+        return; // user cancelled the save dialog
+      }
+    }
+
+    this.toast(t("savingVideo"));
+    try {
+      const { muxIntoContainer, muxToFile } = await import("./mux");
+      if (handle) {
+        const writable = await (handle as unknown as { createWritable(): Promise<import("./mux").FileWritable> }).createWritable();
+        await muxToFile(bytes, subs, container, writable);
+      } else {
         const out = await muxIntoContainer(bytes, subs, container);
         const mime = container === "mkv" ? "video/x-matroska" : "video/mp4";
         const url = URL.createObjectURL(new Blob([out as BlobPart], { type: mime }));
@@ -1886,10 +1904,11 @@ class SubtitleEditor implements SubtitleEditorHandle {
         a.download = `subtitled.${container}`;
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-      } catch (e) {
-        this.toast(`${t("saveVideoError")}: ${e instanceof Error ? e.message : String(e)}`);
       }
-    });
+      this.toast(t("saveVideoDone"));
+    } catch (e) {
+      this.toast(`${t("saveVideoError")}: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   private addTrack(doc: SubtitleDoc, label: string, language = ""): void {
