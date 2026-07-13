@@ -839,7 +839,9 @@ class SubtitleEditor implements SubtitleEditorHandle {
     row.appendChild(cwrap);
 
     row.appendChild(this.assField(cue, "Name", t("actor"), "text", "se-actorfield"));
-    row.appendChild(this.assField(cue, "Effect", t("effect"), "text", "se-effectfield"));
+    row.appendChild(
+      this.assField(cue, "Effect", t("effect"), "text", "se-effectfield", ["", "Banner;40", "Scroll up;0;0;40", "Scroll down;0;0;40", "Karaoke"]),
+    );
     row.appendChild(this.assField(cue, "Layer", t("layer"), "number", "se-numfield"));
     row.appendChild(this.assField(cue, "MarginL", t("marginL"), "number", "se-numfield"));
     row.appendChild(this.assField(cue, "MarginR", t("marginR"), "number", "se-numfield"));
@@ -847,11 +849,24 @@ class SubtitleEditor implements SubtitleEditorHandle {
     return row;
   }
 
-  private assField(cue: Cue, key: string, label: string, type: "text" | "number", cls: string): HTMLElement {
+  private assField(cue: Cue, key: string, label: string, type: "text" | "number", cls: string, datalist?: string[]): HTMLElement {
     const wrap = el("label", `se-field ${cls}`, label);
     const input = document.createElement("input");
     input.type = type;
     input.value = cue.assFields?.[key] ?? (type === "number" ? "0" : "");
+    if (datalist) {
+      const id = `se-dl-${key}`;
+      input.setAttribute("list", id);
+      const dl = document.createElement("datalist");
+      dl.id = id;
+      for (const v of datalist) {
+        const o = document.createElement("option");
+        o.value = v;
+        dl.appendChild(o);
+      }
+      wrap.appendChild(dl);
+      input.title = t("effectHint");
+    }
     const commit = () => {
       (cue.assFields ??= {})[key] = input.value;
       this.refreshRow(cue.id);
