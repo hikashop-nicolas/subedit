@@ -1,8 +1,16 @@
-// Extract text subtitle tracks from a progressive (non-fragmented) MP4/MOV. codem-isoboxer
-// parses the box tree; we read the sample tables (stsc/stsz/stco/co64, which it doesn't
-// parse), compute each sample's file offset and time, and decode the sample format (tx3g/
-// mov_text and wvtt/WebVTT). Fragmented MP4 (moof/trun) is not handled.
+// Extract text subtitle tracks from an MP4/MOV, both progressive (moov/stbl sample tables)
+// and fragmented (moof/traf/trun). codem-isoboxer parses the box tree; for progressive files
+// we read the sample tables it doesn't parse (stsc/stsz/stco/co64) from raw bytes, for
+// fragmented files we use its parsed trun/tfhd/tfdt. Each sample is decoded per its format
+// (tx3g/mov_text or wvtt/WebVTT) and emitted as a WebVTT document.
 import ISOBoxer, { type ISOBox, type ISOFile } from "codem-isoboxer";
+
+interface RawSample {
+  offset: number;
+  size: number;
+  startTicks: number;
+  durTicks: number;
+}
 
 export interface Mp4SubTrack {
   label: string;
@@ -54,6 +62,13 @@ export function sampleTimesMs(stts: { count: number; delta: number }[], timescal
       t += e.delta;
     }
   }
+  return out;
+}
+
+// Per-sample durations (in timescale ticks) expanded from the time-to-sample table.
+export function expandStts(stts: { count: number; delta: number }[]): number[] {
+  const out: number[] = [];
+  for (const e of stts) for (let i = 0; i < e.count; i++) out.push(e.delta);
   return out;
 }
 
@@ -154,6 +169,55 @@ function parseStco(dv: DataView, is64: boolean): number[] {
 
 const SUBTITLE_HANDLERS = new Set(["sbtl", "text", "subt"]);
 
+// Samples held in the classic sample tables (moov/stbl), if present.
+function progressiveSamples(ab: ArrayBuffer, trak: ISOBox): RawSample[] {
+  const stbl = first(trak, "stbl");
+  const stts = stbl && first(stbl, "stts");
+  const stsc = stbl && first(stbl, "stsc");
+  const stsz = stbl && first(stbl, "stsz");
+  const stco = stbl && (first(stbl, "stco") ?? first(stbl, "co64"));
+  if (!stbl || !stts || !stsc || !stsz || !stco) return [];
+  const offs = sampleOffsets(parseStsc(boxView(ab, stsc)), parseStco(boxView(ab, stco), stco.type === "co64"), parseStsz(boxView(ab, stsz)));
+  const durs = expandStts((stts.entries ?? []).map((e) => ({ count: e.sample_count ?? 0, delta: e.sample_delta ?? 0 })));
+  const out: RawSample[] = [];
+  let t = 0;
+  for (let i = 0; i < offs.length; i++) {
+    const d = durs[i] ?? 0;
+    out.push({ offset: offs[i].offset, size: offs[i].size, startTicks: t, durTicks: d });
+    t += d;
+  }
+  return out;
+}
+
+// Samples spread across movie fragments (moof/traf/trun) for the given track.
+function fragmentedSamples(file: ISOFile, trackID: number, defaults: { dur: number; size: number }): RawSample[] {
+  const out: RawSample[] = [];
+  let running = 0;
+  for (const moof of descend(file, "moof")) {
+    for (const traf of descend(moof, "traf")) {
+      const tfhd = first(traf, "tfhd");
+      if (!tfhd || tfhd.track_ID !== trackID) continue;
+      const trun = first(traf, "trun");
+      if (!trun) continue;
+      const flags = tfhd.flags ?? 0;
+      const base = flags & 0x01 ? Number(tfhd.base_data_offset) : moof._offset; // else default-base-is-moof
+      let off = base + Number(trun.data_offset ?? 0);
+      let t = Number(first(traf, "tfdt")?.baseMediaDecodeTime ?? running);
+      const defDur = tfhd.default_sample_duration ?? defaults.dur;
+      const defSize = tfhd.default_sample_size ?? defaults.size;
+      for (const s of trun.samples ?? []) {
+        const size = s.sample_size ?? defSize ?? 0;
+        const dur = s.sample_duration ?? defDur ?? 0;
+        out.push({ offset: off, size, startTicks: t, durTicks: dur });
+        off += size;
+        t += dur;
+      }
+      running = t;
+    }
+  }
+  return out;
+}
+
 export function extractMp4Subtitles(bytes: Uint8Array): Mp4SubTrack[] {
   const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
   let file: ISOFile;
@@ -162,27 +226,27 @@ export function extractMp4Subtitles(bytes: Uint8Array): Mp4SubTrack[] {
   } catch {
     return [];
   }
+  const trexList = descend(file, "trex");
   const out: Mp4SubTrack[] = [];
   for (const trak of descend(file, "trak")) {
     const hdlr = first(trak, "hdlr");
     if (!hdlr || !SUBTITLE_HANDLERS.has((hdlr.handler_type ?? "").trim())) continue;
-    const stbl = first(trak, "stbl");
-    if (!stbl) continue;
-    const codec = first(stbl, "stsd")?.entries?.[0]?.type ?? "";
-    const stts = first(stbl, "stts");
-    const stsc = first(stbl, "stsc");
-    const stsz = first(stbl, "stsz");
-    const stco = first(stbl, "stco") ?? first(stbl, "co64");
-    if (!stts || !stsc || !stsz || !stco) continue;
+    const codec = first(first(trak, "stbl") ?? trak, "stsd")?.entries?.[0]?.type ?? "";
     const timescale = first(trak, "mdhd")?.timescale ?? 1000;
     const language = decodeMdhdLanguage(first(trak, "mdhd")?.language);
-    const offsets = sampleOffsets(parseStsc(boxView(ab, stsc)), parseStco(boxView(ab, stco), stco.type === "co64"), parseStsz(boxView(ab, stsz)));
-    const times = sampleTimesMs((stts.entries ?? []).map((e) => ({ count: e.sample_count ?? 0, delta: e.sample_delta ?? 0 })), timescale);
+    const trackID = first(trak, "tkhd")?.track_ID ?? 0;
+    const trex = trexList.find((x) => x.track_ID === trackID);
+    const samples = [
+      ...progressiveSamples(ab, trak),
+      ...fragmentedSamples(file, trackID, { dur: trex?.default_sample_duration ?? 0, size: trex?.default_sample_size ?? 0 }),
+    ].sort((a, b) => a.startTicks - b.startTicks);
+
     const cues: Cue[] = [];
-    for (let i = 0; i < offsets.length && i < times.length; i++) {
-      const sample = new Uint8Array(ab, offsets[i].offset, offsets[i].size);
+    for (const s of samples) {
+      if (s.offset + s.size > ab.byteLength) continue;
+      const sample = new Uint8Array(ab, s.offset, s.size);
       const text = codec === "wvtt" ? decodeWvtt(sample) : decodeTx3g(sample);
-      if (text.trim()) cues.push({ startMs: times[i].startMs, endMs: times[i].startMs + times[i].durMs, text: text.trim() });
+      if (text.trim()) cues.push({ startMs: Math.round((s.startTicks / timescale) * 1000), endMs: Math.round(((s.startTicks + s.durTicks) / timescale) * 1000), text: text.trim() });
     }
     if (cues.length) out.push({ label: language || "subtitle", language, format: "vtt", text: cuesToVtt(cues) });
   }

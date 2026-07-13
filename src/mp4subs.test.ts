@@ -28,6 +28,7 @@ const box = (type: string, ...parts: Uint8Array[]): Uint8Array => {
   return cat(u32(body.length + 8), enc.encode(type), body);
 };
 const full = (type: string, ...parts: Uint8Array[]): Uint8Array => box(type, new Uint8Array([0, 0, 0, 0]), ...parts);
+const fullF = (type: string, flags: number, ...parts: Uint8Array[]): Uint8Array => box(type, new Uint8Array([0, (flags >> 16) & 0xff, (flags >> 8) & 0xff, flags & 0xff]), ...parts);
 const tx3gSample = (s: string) => {
   const t = enc.encode(s);
   return cat(u16(t.length), t);
@@ -96,5 +97,39 @@ describe("extractMp4Subtitles", () => {
     expect(tracks[0].text).toContain("Hi");
     expect(tracks[0].text).toContain("There");
     expect(tracks[0].text).toContain("00:00:00.000 --> 00:00:01.000");
+  });
+
+  it("extracts a tx3g track from a fragmented MP4 (moof/traf/trun)", () => {
+    const ftyp = box("ftyp", enc.encode("isom"), u32(0), enc.encode("iso5"));
+    // moov: mvex>trex defaults + a subtitle trak with empty sample tables
+    const trex = full("trex", u32(1), u32(1), u32(1000), u32(0), u32(0));
+    const mvex = box("mvex", trex);
+    const tkhd = full("tkhd", u32(0), u32(0), u32(1), u32(0), u32(0), new Uint8Array(8), u32(0), u32(0), new Uint8Array(36), u32(0), u32(0));
+    const mdhd = full("mdhd", u32(0), u32(0), u32(1000), u32(0), u16(0), u16(0)); // language 0 -> ""
+    const hdlr = full("hdlr", u32(0), enc.encode("sbtl"), u32(0), u32(0), u32(0), new Uint8Array([0]));
+    const stbl = box("stbl", full("stsd", u32(1), box("tx3g", new Uint8Array(8))), full("stts", u32(0)), full("stsc", u32(0)), full("stsz", u32(0), u32(0)), full("stco", u32(0)));
+    const trak = box("trak", tkhd, box("mdia", mdhd, hdlr, box("minf", stbl)));
+    const moov = box("moov", mvex, trak);
+
+    const s1 = tx3gSample("Frag one");
+    const s2 = tx3gSample("Frag two");
+    const mdat = box("mdat", s1, s2);
+    // tfhd flags: default-base-is-moof (0x020000) + default_sample_duration (0x08)
+    const tfhd = fullF("tfhd", 0x020008, u32(1), u32(1000));
+    const tfdt = full("tfdt", u32(0));
+    // trun flags: data_offset (0x01) + sample_size (0x200); data_offset filled in after sizing
+    const trun = (dataOff: number) => fullF("trun", 0x000201, u32(2), u32(dataOff), u32(s1.length), u32(s2.length));
+    const traf0 = box("traf", tfhd, tfdt, trun(0));
+    const moof0 = box("moof", full("mfhd", u32(1)), traf0);
+    const dataOffset = moof0.length + 8; // from moof start to the first sample (past mdat header)
+    const moof = box("moof", full("mfhd", u32(1)), box("traf", tfhd, tfdt, trun(dataOffset)));
+    const mp4 = cat(ftyp, moov, moof, mdat);
+
+    const tracks = extractMp4Subtitles(mp4);
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0].text).toContain("Frag one");
+    expect(tracks[0].text).toContain("Frag two");
+    expect(tracks[0].text).toContain("00:00:00.000 --> 00:00:01.000");
+    expect(tracks[0].text).toContain("00:00:01.000 --> 00:00:02.000");
   });
 });

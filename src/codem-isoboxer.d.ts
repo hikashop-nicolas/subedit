@@ -6,13 +6,22 @@ declare module "codem-isoboxer" {
     type: string;
     size: number;
     _offset: number;
+    flags?: number;
     boxes?: ISOBox[];
     // parsed fields we read (present only on the relevant box types)
     handler_type?: string;
     timescale?: number;
     language?: number | string;
+    track_ID?: number;
     entry_count?: number;
     entries?: { type?: string; sample_count?: number; sample_delta?: number }[];
+    // movie fragments
+    base_data_offset?: number;
+    default_sample_duration?: number;
+    default_sample_size?: number;
+    baseMediaDecodeTime?: number;
+    data_offset?: number;
+    samples?: { sample_size?: number; sample_duration?: number }[];
   }
   export interface ISOFile extends ISOBox {
     fetchAll(type: string): ISOBox[];
