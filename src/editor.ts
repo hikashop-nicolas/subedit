@@ -61,6 +61,28 @@ export interface SubtitleEditorHandle {
   destroy(): void;
 }
 
+// One subtitle track of a media-anchored project: an independent, editable document plus a
+// display label and (optional) language tag. Opening a bare subtitle file yields one track.
+export interface Track {
+  id: string;
+  label: string;
+  language: string;
+  doc: SubtitleDoc;
+}
+
+let trackSeq = 0;
+const newTrackId = (): string => `tr${(trackSeq += 1)}`;
+
+// Best-effort label + language from a filename, recognising a ".<lang>." tag (e.g.
+// "movie.en.srt" -> language "en").
+function deriveTrackMeta(filename?: string): { label: string; language: string } {
+  if (!filename) return { label: t("track"), language: "" };
+  const base = filename.replace(/\.[^.]+$/, ""); // strip extension
+  const m = base.match(/[.\-_]([a-z]{2,3})$/i);
+  const language = m && /^(en|fr|ja|es|de|it|pt|nl|ru|zh|ko|ar)$/i.test(m[1]) ? m[1].toLowerCase() : "";
+  return { label: base || t("track"), language };
+}
+
 const ROW_H = 46; // px per cue row
 const OVERSCAN = 6; // extra rows rendered above/below the viewport
 const CPS_WARN = 21;
@@ -96,6 +118,14 @@ function injectStyles(): void {
 .se-toolbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 8px;border-bottom:1px solid var(--se-border);background:var(--se-head);}
 .se-toolbar b{font-size:13px;margin-right:6px;}
 .se-toolbar .se-sp{flex:1 1 auto;}
+.se-tracks{display:flex;gap:4px;align-items:center;padding:4px 8px;border-bottom:1px solid var(--se-border);background:var(--se-head);overflow-x:auto;}
+.se-track{display:flex;align-items:center;gap:4px;padding:3px 4px 3px 10px;border:1px solid var(--se-border);border-radius:6px;background:var(--se-bg);white-space:nowrap;}
+.se-track.on{border-color:var(--se-accent);background:var(--se-sel);color:var(--se-sel-fg);}
+.se-track-name{cursor:pointer;font-size:12px;}
+.se-track-x{border:none;background:none;color:var(--se-muted);cursor:pointer;font-size:14px;line-height:1;padding:0 3px;border-radius:4px;}
+.se-track-x:hover{color:var(--se-bad);}
+.se-track-add{border:1px dashed var(--se-border);background:none;color:var(--se-muted);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:15px;line-height:1;}
+.se-track-add:hover{border-color:var(--se-accent);color:var(--se-accent);}
 .se-btn{font:inherit;padding:4px 9px;border:1px solid var(--se-border);background:var(--se-bg);color:var(--se-fg);border-radius:6px;cursor:pointer;}
 .se-btn:hover{border-color:var(--se-accent);}
 .se-btn:disabled{opacity:.5;cursor:default;}
@@ -191,7 +221,17 @@ function injectStyles(): void {
 
 class SubtitleEditor implements SubtitleEditorHandle {
   private root: HTMLDivElement;
-  private doc: SubtitleDoc;
+  private tracks: Track[] = [];
+  private activeTrackId = "";
+  // The active track's document. A get/set accessor keeps the rest of the editor, which was
+  // written against a single `this.doc`, working unchanged.
+  private get doc(): SubtitleDoc {
+    return (this.tracks.find((t) => t.id === this.activeTrackId) ?? this.tracks[0]).doc;
+  }
+  private set doc(v: SubtitleDoc) {
+    const tr = this.tracks.find((t) => t.id === this.activeTrackId);
+    if (tr) tr.doc = v;
+  }
   private opts: SubtitleEditorOptions;
   private selectedId: string | null = null;
   private playingId: string | null = null;
@@ -202,6 +242,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private countEl!: HTMLSpanElement;
   private stylesBtn!: HTMLButtonElement;
   private scriptBtn!: HTMLButtonElement;
+  private fmtSel!: HTMLSelectElement;
+  private trackBar!: HTMLDivElement;
   private leftEl!: HTMLDivElement;
   private headEl!: HTMLDivElement;
   private rightEl!: HTMLDivElement;
@@ -226,7 +268,9 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.opts = opts;
     if (opts.locale) setLocale(opts.locale);
     injectStyles();
-    this.doc = parseSubtitles(input.text, input.filename);
+    const meta = deriveTrackMeta(input.filename);
+    this.tracks = [{ id: newTrackId(), label: meta.label, language: meta.language, doc: parseSubtitles(input.text, input.filename) }];
+    this.activeTrackId = this.tracks[0].id;
 
     this.root = document.createElement("div");
     this.root.className = "se-root";
@@ -234,6 +278,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     container.appendChild(this.root);
 
     this.buildToolbar();
+    this.buildTrackBar();
     this.buildBody();
     this.renderList();
     this.renderDetail();
@@ -263,6 +308,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     fmt.value = this.doc.format;
     fmt.title = t("format");
     fmt.addEventListener("change", () => this.setFormat(fmt.value as SubtitleFormat));
+    this.fmtSel = fmt;
     bar.appendChild(fmt);
 
     // New ASS style (ASS only); edit lives next to the per-cue style dropdown.
@@ -289,6 +335,103 @@ class SubtitleEditor implements SubtitleEditorHandle {
       bar.appendChild(this.iconButton(ICON.save, t("save"), () => this.save()));
     }
     this.root.appendChild(bar);
+  }
+
+  // --- tracks --------------------------------------------------------------
+
+  private buildTrackBar(): void {
+    this.trackBar = el("div", "se-tracks") as HTMLDivElement;
+    this.root.appendChild(this.trackBar);
+    this.renderTrackBar();
+  }
+
+  private renderTrackBar(): void {
+    this.trackBar.textContent = "";
+    // A lone track still shows its tab so the "+" (add track) stays discoverable.
+    for (const tr of this.tracks) {
+      const tab = el("div", "se-track" + (tr.id === this.activeTrackId ? " on" : ""));
+      const name = el("span", "se-track-name", tr.language ? `${tr.label} (${tr.language})` : tr.label);
+      name.addEventListener("click", () => this.switchTrack(tr.id));
+      name.addEventListener("dblclick", () => this.renameTrack(tr.id));
+      tab.appendChild(name);
+      if (this.tracks.length > 1) {
+        const close = el("button", "se-track-x", "×");
+        close.title = t("removeTrack");
+        close.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.removeTrack(tr.id);
+        });
+        tab.appendChild(close);
+      }
+      this.trackBar.appendChild(tab);
+    }
+    const add = el("button", "se-track-add", "+");
+    add.title = t("addTrack");
+    add.addEventListener("click", () => this.addEmptyTrack());
+    this.trackBar.appendChild(add);
+  }
+
+  private switchTrack(id: string): void {
+    if (id === this.activeTrackId || !this.tracks.some((t) => t.id === id)) return;
+    if (this.posOverlay) this.exitPosition();
+    if (this.clipOverlay) this.exitClip();
+    if (this.drawOverlay) this.exitDraw();
+    this.activeTrackId = id;
+    this.selectedId = null;
+    this.refreshForActiveDoc();
+    this.pushSubtitles();
+    this.renderTrackBar();
+  }
+
+  private addEmptyTrack(): void {
+    let doc = parseSubtitles("", "track.srt");
+    if (this.doc.format !== "srt") doc = convertDoc(doc, this.doc.format);
+    const id = newTrackId();
+    this.tracks.push({ id, label: `${t("track")} ${this.tracks.length + 1}`, language: "", doc });
+    this.switchTrack(id);
+    this.markDirty();
+  }
+
+  private removeTrack(id: string): void {
+    if (this.tracks.length <= 1) return;
+    const idx = this.tracks.findIndex((t) => t.id === id);
+    if (idx < 0) return;
+    this.tracks.splice(idx, 1);
+    if (this.activeTrackId === id) {
+      this.activeTrackId = this.tracks[Math.min(idx, this.tracks.length - 1)].id;
+      this.selectedId = null;
+      this.refreshForActiveDoc();
+      this.pushSubtitles();
+    }
+    this.renderTrackBar();
+    this.markDirty();
+  }
+
+  private renameTrack(id: string): void {
+    const tr = this.tracks.find((t) => t.id === id);
+    if (!tr) return;
+    const name = prompt(t("trackNamePrompt"), tr.label);
+    if (name != null) {
+      tr.label = name.trim() || tr.label;
+      this.renderTrackBar();
+      this.markDirty();
+    }
+  }
+
+  // Re-point all views at the active track's document (format UI, list head, list, detail).
+  private refreshForActiveDoc(): void {
+    const isAss = this.doc.format === "ass";
+    this.stylesBtn.style.display = isAss ? "" : "none";
+    this.scriptBtn.style.display = isAss ? "" : "none";
+    this.leftEl.classList.toggle("se-ass", isAss);
+    this.fmtSel.value = this.doc.format;
+    this.renderListHead();
+    this.rows.clear();
+    this.innerEl.textContent = "";
+    this.scrollEl.scrollTop = 0;
+    this.renderList();
+    if (this.doc.cues.length) this.select(this.doc.cues[0].id);
+    else this.renderDetail();
   }
 
   private buildBody(): void {
@@ -1785,14 +1928,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private setFormat(target: SubtitleFormat): void {
     if (target === this.doc.format) return;
     this.doc = convertDoc(this.doc, target);
-    this.stylesBtn.style.display = target === "ass" ? "" : "none";
-    this.scriptBtn.style.display = target === "ass" ? "" : "none";
-    this.leftEl.classList.toggle("se-ass", target === "ass");
-    this.renderListHead();
-    this.rows.clear();
-    this.innerEl.textContent = "";
-    this.renderList();
-    this.renderDetail();
+    this.refreshForActiveDoc();
     this.markDirty();
   }
 
