@@ -110,12 +110,19 @@ export function openTranscribeDialog(host: TranscribeHost): void {
     const o = document.createElement("option");
     o.value = m.id;
     o.textContent = `${m.label} (~${m.sizeMb} MB)`;
-    o.title = m.note ?? "";
+    o.title = t(m.descKey);
     modelSel.appendChild(o);
   }
   modelSel.value = DEFAULT_WHISPER_MODEL;
   modelWrap.appendChild(modelSel);
   body.appendChild(modelWrap);
+  // Live "why pick this" guidance for the selected model.
+  const modelDesc = document.createElement("p");
+  modelDesc.className = "se-asr-intro";
+  const syncDesc = () => (modelDesc.textContent = t(WHISPER_MODELS.find((m) => m.id === modelSel.value)?.descKey ?? ""));
+  modelSel.addEventListener("change", syncDesc);
+  syncDesc();
+  body.appendChild(modelDesc);
 
   const langWrap = document.createElement("label");
   langWrap.textContent = t("asrLanguage");

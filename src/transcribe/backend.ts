@@ -16,7 +16,7 @@ export interface WhisperModelInfo {
   id: string; // Hugging Face repo id
   label: string;
   sizeMb: number; // approximate download size at the chosen quantization
-  note?: string;
+  descKey: string; // i18n key for a "why pick this" description shown in the dialog
   // Recommended quantization per compute backend (keeps big models downloadable).
   dtype: { webgpu: DtypeSpec; wasm: DtypeSpec };
   // "word" needs a cross-attention (_timestamped) export; "sentence" works on any model.
@@ -32,14 +32,14 @@ export type TranscribeProgress =
 const WORD_DTYPE = { webgpu: { encoder_model: "fp32", decoder_model_merged: "q4" }, wasm: "q8" };
 
 export const WHISPER_MODELS: WhisperModelInfo[] = [
-  { id: "onnx-community/whisper-tiny_timestamped", label: "Tiny", sizeMb: 60, note: "Fastest, roughest. ~99 languages.", dtype: WORD_DTYPE, timestamps: "word" },
-  { id: "onnx-community/whisper-base_timestamped", label: "Base", sizeMb: 110, note: "Good balance. ~99 languages.", dtype: WORD_DTYPE, timestamps: "word" },
-  { id: "onnx-community/whisper-small_timestamped", label: "Small", sizeMb: 260, note: "Higher quality, slower. ~99 languages.", dtype: WORD_DTYPE, timestamps: "word" },
+  { id: "onnx-community/whisper-tiny_timestamped", label: "Tiny", sizeMb: 60, descKey: "modelDescTiny", dtype: WORD_DTYPE, timestamps: "word" },
+  { id: "onnx-community/whisper-base_timestamped", label: "Base", sizeMb: 110, descKey: "modelDescBase", dtype: WORD_DTYPE, timestamps: "word" },
+  { id: "onnx-community/whisper-small_timestamped", label: "Small", sizeMb: 260, descKey: "modelDescSmall", dtype: WORD_DTYPE, timestamps: "word" },
   {
     id: "onnx-community/kotoba-whisper-bilingual-v1.0-ONNX",
     label: "Kotoba bilingual (JA/EN)",
     sizeMb: 510,
-    note: "Japanese/English, tuned for anime and fansub. Large download; sentence-level timing.",
+    descKey: "modelDescKotoba",
     dtype: { webgpu: { encoder_model: "q4f16", decoder_model_merged: "q4f16" }, wasm: "q8" },
     timestamps: "sentence",
   },
