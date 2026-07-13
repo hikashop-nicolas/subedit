@@ -80,6 +80,7 @@ interface TranslationJob {
   run: TranslateRun;
   state: "running" | "paused";
   stage: "download" | "translate";
+  device?: "webgpu" | "wasm";
   ratio: number;
   parsed: (CuePart[] | null)[];
   refs: { c: number; p: number }[];
@@ -2040,6 +2041,10 @@ class SubtitleEditor implements SubtitleEditorHandle {
         this.renderTrackBar();
       },
       onPartial: (start, texts) => this.applyTranslatedBatch(track, start, texts),
+      onDevice: (device) => {
+        job.device = device;
+        this.renderJobStrip();
+      },
     });
     job.run.done
       .then((res) => this.finishTranslateJob(track, res.stopped))
@@ -2137,7 +2142,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
     }
     this.jobStrip.classList.add("on");
     const pct = Math.round(job.ratio * 100);
-    const text = job.stage === "download" ? `${t("asrDownloading")} ${pct}%` : `${t("translating")} ${job.done}/${job.total} (${pct}%)`;
+    const dev = job.device ? ` · ${job.device === "webgpu" ? t("asrUsingGpu") : t("asrUsingCpu")}` : "";
+    const text = job.stage === "download" ? `${t("asrDownloading")} ${pct}%` : `${t("translating")} ${job.done}/${job.total} (${pct}%)${dev}`;
     const lab = el("span", "se-job-label", text);
     const bar = el("div", "se-job-bar");
     const fill = el("div", "se-job-fill");

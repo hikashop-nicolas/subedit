@@ -60,8 +60,17 @@ onMessage(async (e: MessageEvent) => {
   if (msg.type !== "run") return;
   const run = e.data as RunMsg;
   try {
-    const device: "webgpu" | "wasm" = run.device ?? ((await hasWebGpu()) ? "webgpu" : "wasm");
-    const translate = await getTranslator(run.model, device, run.dtype);
+    let device: "webgpu" | "wasm" = run.device ?? ((await hasWebGpu()) ? "webgpu" : "wasm");
+    let translate: Translator;
+    try {
+      translate = await getTranslator(run.model, device, run.dtype);
+    } catch (gpuErr) {
+      // If the GPU can't load the model (driver/dtype quirks), fall back to CPU instead of
+      // failing the whole job.
+      if (device !== "webgpu") throw gpuErr;
+      device = "wasm";
+      translate = await getTranslator(run.model, device, run.dtype);
+    }
     post({ type: "device", device });
     // m2m100/NLLB reliably translate the sentence first, then FAIL to emit EOS and ramble
     // (repeating, drifting into other languages). The single most effective cure is a tight

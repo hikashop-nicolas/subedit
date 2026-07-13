@@ -23,6 +23,8 @@ export interface TranslateCallbacks {
   // Called for each translated batch as it lands: texts[k] is the translation of input
   // (start + k), so the caller can fill results live.
   onPartial?: (start: number, texts: string[]) => void;
+  // Which compute backend the run settled on: "webgpu" (GPU, fast) or "wasm" (CPU).
+  onDevice?: (device: "webgpu" | "wasm") => void;
 }
 
 export function runTranslate(texts: string[], opts: TranslateOptions, cb: TranslateCallbacks = {}): TranslateRun {
@@ -41,7 +43,7 @@ export function runTranslate(texts: string[], opts: TranslateOptions, cb: Transl
           cb.onPartial?.(m.start, m.texts);
           break;
         case "device":
-          cb.onProgress?.({ stage: "transcribe", ratio: 0 });
+          cb.onDevice?.(m.device);
           break;
         case "done":
           resolve({ stopped: !!m.stopped });

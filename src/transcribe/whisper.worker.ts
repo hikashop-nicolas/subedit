@@ -37,8 +37,15 @@ onMessage(async (e: MessageEvent) => {
   const msg = e.data as RunMsg;
   if (msg.type !== "run") return;
   try {
-    const device: "webgpu" | "wasm" = msg.device ?? ((await hasWebGpu()) ? "webgpu" : "wasm");
-    const transcribe = await getTranscriber(msg.model, device, msg.dtype);
+    let device: "webgpu" | "wasm" = msg.device ?? ((await hasWebGpu()) ? "webgpu" : "wasm");
+    let transcribe: Transcriber;
+    try {
+      transcribe = await getTranscriber(msg.model, device, msg.dtype);
+    } catch (gpuErr) {
+      if (device !== "webgpu") throw gpuErr;
+      device = "wasm";
+      transcribe = await getTranscriber(msg.model, device, msg.dtype);
+    }
     post({ type: "device", device });
     const out = await transcribe(msg.audio, {
       chunk_length_s: 30,
