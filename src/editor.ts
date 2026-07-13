@@ -569,7 +569,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     g.appendChild(el("span", "se-cglabel", label));
     g.appendChild(this.colorButton(cue, ta, colorTag, styleField, colorTitle));
     g.appendChild(this.alphaSlider(cue, ta, alphaTag, styleField));
-    if (widthTag) g.appendChild(this.numField(cue, ta, widthTag, `${label}, ${t("width")}`));
+    if (widthTag) g.appendChild(this.numField(cue, ta, widthTag, widthTag === "shad" ? t("tipShadowWidthField") : t("tipBorderWidthField")));
     return g;
   }
 
@@ -586,12 +586,11 @@ class SubtitleEditor implements SubtitleEditorHandle {
     const aa = m ? m[1] : assColorToHex(style?.fields[styleField] ?? "&H00FFFFFF").alpha;
     const pct = Math.round((1 - parseInt(aa || "00", 16) / 255) * 100);
     input.value = String(pct);
-    input.title = `${t("opacity")} ${pct}%`;
+    input.title = t("tipOpacity");
     input.addEventListener("input", () => {
       const hex = Math.round((1 - Number(input.value) / 100) * 255).toString(16).padStart(2, "0").toUpperCase();
       const stripped = cue.text.replace(new RegExp(`\\\\${alphaTag}&H[0-9A-Fa-f]+&`, "g"), "").replace(/\{\}/g, "");
       ta.value = `{\\${alphaTag}&H${hex}&}` + stripped;
-      input.title = `${t("opacity")} ${input.value}%`;
       this.updateCue(cue.id, { text: ta.value }, true);
     });
     return input;
@@ -606,7 +605,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     const name = document.createElement("input");
     name.type = "text";
     name.className = "se-fontname";
-    name.title = t("styleFont");
+    name.title = t("tipFontName");
     name.setAttribute("list", "se-spanfontlist");
     name.placeholder = style?.fields.Fontname ?? "";
     name.value = cue.text.match(/\\fn([^\\}]+)/)?.[1]?.trim() ?? "";
@@ -615,7 +614,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
       ta.value = name.value.trim() === "" ? stripped : `{\\fn${name.value.trim()}}` + stripped;
       this.updateCue(cue.id, { text: ta.value }, true);
     });
-    g.append(name, this.fontDatalist(), this.numField(cue, ta, "fs", t("styleSize")));
+    g.append(name, this.fontDatalist(), this.numField(cue, ta, "fs", t("tipFontSize")));
     return g;
   }
 
@@ -669,32 +668,36 @@ class SubtitleEditor implements SubtitleEditorHandle {
     };
 
     if (mode === "text") {
-      const tagBtn = (label: string, on: string, off: string, cls: string) => {
-        const b = iconBtn("", label, () => wrap(`{\\${on}}`, `{\\${off}}`), cls);
+      const tagBtn = (label: string, on: string, off: string, cls: string, tip: string) => {
+        const b = iconBtn("", tip, () => wrap(`{\\${on}}`, `{\\${off}}`), cls);
         b.textContent = label;
         return b;
       };
-      bar.append(tagBtn("B", "b1", "b0", "se-in-b"), tagBtn("I", "i1", "i0", "se-in-i"), tagBtn("U", "u1", "u0", "se-in-u"));
+      bar.append(
+        tagBtn("B", "b1", "b0", "se-in-b", t("tipBold")),
+        tagBtn("I", "i1", "i0", "se-in-i", t("tipItalic")),
+        tagBtn("U", "u1", "u0", "se-in-u", t("tipUnderline")),
+      );
       bar.appendChild(this.fontGroup(cue, ta));
     }
 
     // Fill / border / shadow, each grouping its colour with its width. Applies to
     // drawings and text alike (an ASS shape is outlined and shadowed like glyphs are).
     bar.append(
-      this.colorGroup(cue, ta, t("fill"), "1c", "1a", "PrimaryColour", t("colorFill")),
-      this.colorGroup(cue, ta, t("borderWidth"), "3c", "3a", "OutlineColour", t("colorBorder"), "bord"),
-      this.colorGroup(cue, ta, t("shadowWidth"), "4c", "4a", "BackColour", t("colorBack"), "shad"),
+      this.colorGroup(cue, ta, t("fill"), "1c", "1a", "PrimaryColour", t("tipColorFill")),
+      this.colorGroup(cue, ta, t("borderWidth"), "3c", "3a", "OutlineColour", t("tipColorBorder"), "bord"),
+      this.colorGroup(cue, ta, t("shadowWidth"), "4c", "4a", "BackColour", t("tipColorBack"), "shad"),
     );
 
     if (mode === "drawing") {
-      bar.appendChild(iconBtn(ICON.draw, t("editShape"), () => this.toggleDraw(cue), "se-posbtn" + (this.drawOverlay ? " on" : "")));
+      bar.appendChild(iconBtn(ICON.draw, t("tipEditShape"), () => this.toggleDraw(cue), "se-posbtn" + (this.drawOverlay ? " on" : "")));
     }
 
     // Fade and transform apply to both text and drawings; karaoke is text-only.
-    bar.appendChild(iconBtn(ICON.fade, t("fade"), () => this.openFade(cue, ta)));
+    bar.appendChild(iconBtn(ICON.fade, t("tipFade"), () => this.openFade(cue, ta)));
     if (mode === "text") {
       bar.appendChild(
-        iconBtn(ICON.mic, t("karaoke"), () =>
+        iconBtn(ICON.mic, t("tipKaraoke"), () =>
           openKaraoke(cue, this.video ?? null, this.wavePeaks, this.cueColorHex(cue, "2c", "SecondaryColour"), (text) => {
             ta.value = text;
             this.updateCue(cue.id, { text }, true);
@@ -703,12 +706,12 @@ class SubtitleEditor implements SubtitleEditorHandle {
       );
     }
 
-    bar.appendChild(iconBtn(ICON.transform, t("transform"), () => this.openTransform(cue, ta)));
+    bar.appendChild(iconBtn(ICON.transform, t("tipTransform"), () => this.openTransform(cue, ta)));
 
     if (mode === "text") {
       const align = document.createElement("select");
       align.className = "se-inalign";
-      align.title = t("styleAlign");
+      align.title = t("tipAlign");
       const optNone = document.createElement("option");
       optNone.value = "none";
       optNone.textContent = t("noAlign");
@@ -731,7 +734,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
       // Wrap style (\q): how libass breaks the line. "Default" removes the override.
       const wrap = document.createElement("select");
       wrap.className = "se-inalign";
-      wrap.title = t("wrapStyle");
+      wrap.title = t("tipWrap");
       for (const { value, label } of [
         { value: "none", label: t("wrapDefault") },
         { value: "0", label: t("wrapSmart") },
@@ -753,8 +756,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
       bar.appendChild(wrap);
     }
 
-    bar.appendChild(iconBtn("⌖", t("positionPick"), () => this.togglePosition(cue), "se-posbtn" + (this.positionCueId === cue.id ? " on" : "")));
-    bar.appendChild(iconBtn(ICON.clip, t("clip"), () => this.toggleClip(cue), "se-posbtn" + (this.clipOverlay ? " on" : "")));
+    bar.appendChild(iconBtn("⌖", t("tipPosition"), () => this.togglePosition(cue), "se-posbtn" + (this.positionCueId === cue.id ? " on" : "")));
+    bar.appendChild(iconBtn(ICON.clip, t("tipClip"), () => this.toggleClip(cue), "se-posbtn" + (this.clipOverlay ? " on" : "")));
     return bar;
   }
 
@@ -1282,14 +1285,15 @@ class SubtitleEditor implements SubtitleEditorHandle {
       parent.appendChild(wrap);
       return input;
     };
-    const group = (title: string): HTMLElement => {
+    const group = (title: string, tip = ""): HTMLElement => {
       const g = el("div", "se-xgroup");
       g.appendChild(el("span", "se-xglabel", title));
+      if (tip) g.title = tip;
       pop.appendChild(g);
       return g;
     };
 
-    const simpleGrp = group(t("fade"));
+    const simpleGrp = group(t("fade"), t("tipFadeSimple"));
     const fin = field(simpleGrp, t("fadeIn"), simple?.[1] ?? "200");
     const fout = field(simpleGrp, t("fadeOut"), simple?.[2] ?? "200");
 
@@ -1304,10 +1308,12 @@ class SubtitleEditor implements SubtitleEditorHandle {
     const a1 = field(advGrp, "α1", av[0] ?? "255");
     const a2 = field(advGrp, "α2", av[1] ?? "0");
     const a3 = field(advGrp, "α3", av[2] ?? "255");
+    for (const a of [a1, a2, a3]) a.title = t("tipFadeAlpha");
     const t1 = field(advGrp, "t1", av[3] ?? "0");
     const t2 = field(advGrp, "t2", av[4] ?? String(Math.min(300, dur)));
     const t3 = field(advGrp, "t3", av[5] ?? String(Math.max(0, dur - 300)));
     const t4 = field(advGrp, "t4", av[6] ?? String(dur));
+    for (const tf of [t1, t2, t3, t4]) tf.title = t("tipFadeTimes");
 
     const sync = (): void => {
       advGrp.style.display = advCb.checked ? "" : "none";
@@ -1353,33 +1359,37 @@ class SubtitleEditor implements SubtitleEditorHandle {
       parent.appendChild(wrap);
       return input;
     };
-    const group = (title: string): HTMLElement => {
+    const group = (title: string, tip = ""): HTMLElement => {
       const g = el("div", "se-xgroup");
       g.appendChild(el("span", "se-xglabel", title));
+      if (tip) g.title = tip;
       pop.appendChild(g);
       return g;
     };
 
-    const rot = group(t("rotate"));
+    const rot = group(t("rotate"), t("tipRotate"));
     const frx = field(rot, "X", get(/\\frx(-?[\d.]+)/, "0"));
     const fry = field(rot, "Y", get(/\\fry(-?[\d.]+)/, "0"));
     const frz = field(rot, "Z", get(/\\frz(-?[\d.]+)/, "0"));
     const org = cue.text.match(/\\org\((-?[\d.]+),(-?[\d.]+)\)/);
-    const originGrp = group(t("origin"));
+    const originGrp = group(t("origin"), t("tipOrigin"));
     const orgX = field(originGrp, "X", org?.[1] ?? "");
     const orgY = field(originGrp, "Y", org?.[2] ?? "");
-    const scale = group(t("scale"));
+    const scale = group(t("scale"), t("tipScale"));
     const fscx = field(scale, "X", get(/\\fscx([\d.]+)/, "100"));
     const fscy = field(scale, "Y", get(/\\fscy([\d.]+)/, "100"));
-    const shear = group(t("shear"));
+    const shear = group(t("shear"), t("tipShear"));
     const fax = field(shear, "X", get(/\\fax(-?[\d.]+)/, "0"));
     const fay = field(shear, "Y", get(/\\fay(-?[\d.]+)/, "0"));
     const misc = group("");
     const fsp = field(misc, t("styleSpacing"), get(/\\fsp(-?[\d.]+)/, "0"));
+    fsp.title = t("tipSpacing");
     const blur = field(misc, t("blur"), get(/\\blur([\d.]+)/, "0"));
+    blur.title = t("tipBlur");
     const be = field(misc, t("edgeBlur"), get(/\\be([\d.]+)/, "0"));
+    be.title = t("tipEdgeBlur");
     // Per-axis border/shadow. Blank = inherit \bord/\shad; a number (incl. 0) overrides.
-    const axes = group(t("borderShadowAxes"));
+    const axes = group(t("borderShadowAxes"), t("tipAxes"));
     const xbord = field(axes, `${t("borderWidth")} X`, cue.text.match(/\\xbord([\d.]+)/)?.[1] ?? "");
     const ybord = field(axes, `${t("borderWidth")} Y`, cue.text.match(/\\ybord([\d.]+)/)?.[1] ?? "");
     const xshad = field(axes, `${t("shadowWidth")} X`, cue.text.match(/\\xshad(-?[\d.]+)/)?.[1] ?? "");
@@ -1387,6 +1397,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
     // Animate: wrap the transform in \t so it eases from the style default to these values.
     const animWrap = el("label", "se-field se-checkfield", t("animate"));
+    animWrap.title = t("tipAnimate");
     const anim = document.createElement("input");
     anim.type = "checkbox";
     anim.checked = /\\t\(/.test(cue.text);
@@ -1498,7 +1509,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
       this.markDirty();
     });
     cwrap.appendChild(cb);
-    row.append(cwrap, this.assField(cue, "Name", t("actor"), "text", "se-actorfield"), this.assField(cue, "Layer", t("layer"), "number", "se-numfield"), this.assEffectField(cue));
+    row.append(cwrap, this.assField(cue, "Name", t("actor"), "text", "se-actorfield", undefined, t("tipActor")), this.assField(cue, "Layer", t("layer"), "number", "se-numfield", undefined, t("tipLayer")), this.assEffectField(cue));
     box.appendChild(row);
 
     // Margins group: Left / Right, and Vertical only when the line is top/bottom aligned.
@@ -1539,6 +1550,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     group.append(el("span", "", t("effect")));
     const rowEl = el("div", "se-effectrow");
     const sel = document.createElement("select");
+    sel.title = t("tipEffect");
     const opts: [string, string][] = [["none", t("effectNone")], ["banner", t("banner")], ["scrollup", t("scrollUp")], ["scrolldown", t("scrollDown")]];
     if (type === "karaoke") opts.push(["karaoke", t("karaoke")]);
     for (const [v, l] of opts) {
@@ -1600,8 +1612,9 @@ class SubtitleEditor implements SubtitleEditorHandle {
     return group;
   }
 
-  private assField(cue: Cue, key: string, label: string, type: "text" | "number", cls: string, datalist?: string[]): HTMLElement {
+  private assField(cue: Cue, key: string, label: string, type: "text" | "number", cls: string, datalist?: string[], tip?: string): HTMLElement {
     const wrap = el("label", `se-field ${cls}`, label);
+    if (tip) wrap.title = tip;
     const input = document.createElement("input");
     input.type = type;
     input.value = cue.assFields?.[key] ?? (type === "number" ? "0" : "");

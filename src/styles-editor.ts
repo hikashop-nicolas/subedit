@@ -128,6 +128,12 @@ export function openStyleEditor(host: StylesEditorHost, style: AssStyle): void {
   };
   // A colour with its opacity slider, plus any extras (width field, border-style select),
   // boxed under one label. Colour + alpha both write the field as &HAABBGGRR.
+  const COLOUR_TIP: Record<string, string> = {
+    PrimaryColour: t("tipColorFill"),
+    SecondaryColour: t("tipColorSecondary"),
+    OutlineColour: t("tipColorBorder"),
+    BackColour: t("tipColorBack"),
+  };
   const colourBox = (label: string, field: string, ...extras: HTMLElement[]): HTMLElement => {
     const box = document.createElement("div");
     box.className = "se-scgroup";
@@ -143,7 +149,7 @@ export function openStyleEditor(host: StylesEditorHost, style: AssStyle): void {
     const colour = document.createElement("input");
     colour.type = "color";
     colour.value = hex;
-    colour.title = label;
+    colour.title = COLOUR_TIP[field] ?? label;
     colour.addEventListener("input", () => {
       hex = colour.value;
       write();
@@ -154,10 +160,9 @@ export function openStyleEditor(host: StylesEditorHost, style: AssStyle): void {
     opa.min = "0";
     opa.max = "100";
     opa.value = String(Math.round((1 - parseInt(alpha || "00", 16) / 255) * 100));
-    opa.title = `${t("opacity")} ${opa.value}%`;
+    opa.title = t("tipOpacity");
     opa.addEventListener("input", () => {
       alpha = Math.round((1 - Number(opa.value) / 100) * 255).toString(16).padStart(2, "0").toUpperCase();
-      opa.title = `${t("opacity")} ${opa.value}%`;
       write();
     });
     box.append(colour, opa, ...extras);
@@ -320,7 +325,7 @@ export function openStyleEditor(host: StylesEditorHost, style: AssStyle): void {
     borderSel.appendChild(o);
   }
   borderSel.value = style.fields.BorderStyle ?? "1";
-  borderSel.title = t("styleBorder");
+  borderSel.title = t("tipBorderStyle");
   borderSel.addEventListener("change", () => {
     style.fields.BorderStyle = borderSel.value;
     host.onChange();
@@ -331,7 +336,7 @@ export function openStyleEditor(host: StylesEditorHost, style: AssStyle): void {
     input.className = "se-widthfield";
     input.min = "0";
     input.step = "0.5";
-    input.title = t("width");
+    input.title = field === "Shadow" ? t("tipShadowWidthField") : t("tipBorderWidthField");
     input.value = style.fields[field] ?? "";
     input.addEventListener("change", () => {
       style.fields[field] = input.value;
