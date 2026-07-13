@@ -379,8 +379,9 @@ translate mode (two-column original/translation).
   optional, capability). See the media-anchored + mux sections above.
 - **Phase 6, Omnitext**: subtitle.impl.ts, format registration, preferred
   editor wiring, git dep pin, ship to Pages + APK.
-- **Later / out of scope for now**: Web Speech / cloud ASR backends, MP4/mov_text
-  subtitle extraction, MicroDVD (.sub) and other niche text formats, image-based
+- **Later / out of scope for now**: Web Speech / cloud ASR backends, fragmented-MP4
+  (moof/trun) subtitle extraction (progressive MP4 tx3g/wvtt is DONE via
+  codem-isoboxer), MicroDVD (.sub) and other niche text formats, image-based
   subtitles (VobSub/PGS need OCR), hard-burn subtitles, WYSIWYG ASS tag editing.
 
 ## Risks
