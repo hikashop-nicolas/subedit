@@ -69,6 +69,7 @@ const ICON = {
   mic: svgIcon('<rect x="6" y="2" width="4" height="7" rx="2"/><path d="M4 7a4 4 0 0 0 8 0M8 11v2.5M6 13.5h4"/>'),
   fade: svgIcon('<path d="M2 13l5-10v10z" fill="currentColor" stroke="none"/><path d="M14 13L9 3v10z" fill="currentColor" stroke="none" opacity="0.5"/>'),
   transform: svgIcon('<path d="M12.5 5A5.5 5.5 0 1 0 13 8.5"/><path d="M11 2.5v3h3"/>'),
+  clip: svgIcon('<path d="M2 5h9v9M5 2v3M5 5h6v6"/><rect x="2" y="8" width="6" height="6" rx="1" stroke-dasharray="2 1.5"/>'),
   save: svgIcon('<path d="M8 2.5v7.5M5 7.5l3 3 3-3M3.5 13h9"/>'),
 };
 
@@ -141,6 +142,9 @@ function injectStyles(): void {
 .se-posoverlay{position:absolute;z-index:5;cursor:crosshair;background:rgba(37,99,235,0.08);box-shadow:inset 0 0 0 2px var(--se-accent);}
 .se-posdone{position:absolute;top:8px;right:8px;cursor:pointer;font:600 12px system-ui;padding:4px 10px;border:1px solid var(--se-accent);border-radius:6px;background:var(--se-accent);color:#fff;}
 .se-poshint{position:absolute;bottom:8px;left:0;right:0;text-align:center;font:600 11px system-ui;color:#fff;text-shadow:0 1px 2px #000;pointer-events:none;}
+.se-cliprect{position:absolute;border:1px dashed #fff;background:rgba(255,255,255,0.12);box-shadow:0 0 0 9999px rgba(0,0,0,0.35);pointer-events:none;}
+.se-clipinv{right:74px;background:var(--se-head);color:var(--se-fg);}
+.se-clipinv.on{background:var(--se-accent);color:#fff;border-color:var(--se-accent);}
 .se-fadepop{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;padding:6px;border:1px solid var(--se-border);border-radius:6px;background:var(--se-bg);}
 .se-fadepop input{width:70px;}
 .se-empty,.se-noprev{flex:1 1 auto;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--se-muted);}
@@ -183,6 +187,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private detailTextarea: HTMLTextAreaElement | null = null;
   private posOverlay: HTMLDivElement | null = null;
   private positionCueId: string | null = null;
+  private clipOverlay: HTMLDivElement | null = null;
   private wavePeaks: { peaks: Float32Array; peaksPerSec: number } | null = null;
   private rows = new Map<string, HTMLDivElement>();
   private rafPending = false;
@@ -427,6 +432,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private select(id: string): void {
     if (this.selectedId === id) return;
     if (this.posOverlay) this.exitPosition();
+    if (this.clipOverlay) this.exitClip();
     const prev = this.selectedId;
     this.selectedId = id;
     if (prev) this.refreshRow(prev);
@@ -595,6 +601,16 @@ class SubtitleEditor implements SubtitleEditorHandle {
     posBtn.addEventListener("click", () => this.togglePosition(cue));
     bar.appendChild(posBtn);
 
+    // Clip: drag a rectangle on the preview to set \clip (or \iclip).
+    const clipBtn = document.createElement("button");
+    clipBtn.type = "button";
+    clipBtn.className = "se-inbtn se-posbtn" + (this.clipOverlay ? " on" : "");
+    clipBtn.innerHTML = ICON.clip;
+    clipBtn.title = t("clip");
+    clipBtn.addEventListener("mousedown", (e) => e.preventDefault());
+    clipBtn.addEventListener("click", () => this.toggleClip(cue));
+    bar.appendChild(clipBtn);
+
     return bar;
   }
 
@@ -617,6 +633,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
       this.exitPosition();
       return;
     }
+    if (this.clipOverlay) this.exitClip();
     if (!this.video) {
       this.toast(t("posNeedsVideo"));
       return;
@@ -709,6 +726,99 @@ class SubtitleEditor implements SubtitleEditorHandle {
     const a = this.clientToPlayRes(x1, y1);
     const b = this.clientToPlayRes(x2, y2);
     if (a && b) this.applyCueTag(cue, `\\move(${a.px},${a.py},${b.px},${b.py})`);
+  }
+
+  // --- clip (\clip / \iclip via dragging a rectangle) ----------------------
+
+  private toggleClip(cue: Cue): void {
+    if (this.clipOverlay) {
+      this.exitClip();
+      return;
+    }
+    if (this.posOverlay) this.exitPosition();
+    if (!this.video) {
+      this.toast(t("posNeedsVideo"));
+      return;
+    }
+    const ov = el("div", "se-posoverlay se-clipoverlay") as HTMLDivElement;
+    const cr = this.videoContentRect();
+    const rr = this.rightEl.getBoundingClientRect();
+    ov.style.left = `${cr.left - rr.left}px`;
+    ov.style.top = `${cr.top - rr.top}px`;
+    ov.style.width = `${cr.width}px`;
+    ov.style.height = `${cr.height}px`;
+    const band = el("div", "se-cliprect");
+    band.style.display = "none";
+    let inverse = /\\iclip\(/.test(cue.text);
+    const inv = document.createElement("button");
+    inv.className = "se-posdone se-clipinv" + (inverse ? " on" : "");
+    inv.textContent = t("inverse");
+    inv.addEventListener("pointerdown", (e) => e.stopPropagation());
+    inv.addEventListener("click", (e) => {
+      e.stopPropagation();
+      inverse = !inverse;
+      inv.classList.toggle("on", inverse);
+    });
+    const done = document.createElement("button");
+    done.className = "se-posdone";
+    done.textContent = t("done");
+    done.addEventListener("pointerdown", (e) => e.stopPropagation());
+    done.addEventListener("click", () => this.exitClip());
+    const hint = el("div", "se-poshint", t("clipHint"));
+    let start: { x: number; y: number } | null = null;
+    const updateBand = (cx: number, cy: number) => {
+      const r = ov.getBoundingClientRect();
+      band.style.display = "block";
+      band.style.left = `${Math.min(start!.x, cx) - r.left}px`;
+      band.style.top = `${Math.min(start!.y, cy) - r.top}px`;
+      band.style.width = `${Math.abs(cx - start!.x)}px`;
+      band.style.height = `${Math.abs(cy - start!.y)}px`;
+    };
+    ov.addEventListener("pointerdown", (e) => {
+      start = { x: e.clientX, y: e.clientY };
+      ov.setPointerCapture(e.pointerId);
+      updateBand(e.clientX, e.clientY);
+    });
+    ov.addEventListener("pointermove", (e) => {
+      if (start && e.buttons & 1) updateBand(e.clientX, e.clientY);
+    });
+    ov.addEventListener("pointerup", (e) => {
+      if (start && (Math.abs(e.clientX - start.x) > 4 || Math.abs(e.clientY - start.y) > 4)) {
+        this.setCueClip(cue, start.x, start.y, e.clientX, e.clientY, inverse);
+      }
+      start = null;
+    });
+    ov.append(band, inv, done, hint);
+    this.rightEl.appendChild(ov);
+    this.clipOverlay = ov;
+    document.addEventListener("keydown", this.onClipKey, true);
+    this.renderDetail();
+  }
+
+  private onClipKey = (e: KeyboardEvent): void => {
+    if (e.key === "Escape" && this.clipOverlay) {
+      e.preventDefault();
+      this.exitClip();
+    }
+  };
+
+  private exitClip(): void {
+    document.removeEventListener("keydown", this.onClipKey, true);
+    this.clipOverlay?.remove();
+    this.clipOverlay = null;
+    this.renderDetail();
+  }
+
+  private setCueClip(cue: Cue, x1: number, y1: number, x2: number, y2: number, inverse: boolean): void {
+    const a = this.clientToPlayRes(Math.min(x1, x2), Math.min(y1, y2));
+    const b = this.clientToPlayRes(Math.max(x1, x2), Math.max(y1, y2));
+    if (!a || !b) return;
+    const tag = inverse ? "iclip" : "clip";
+    const stripped = cue.text.replace(/\\i?clip\([^)]*\)/g, "").replace(/\{\}/g, "");
+    cue.text = `{\\${tag}(${a.px},${a.py},${b.px},${b.py})}` + stripped;
+    if (this.detailTextarea) this.detailTextarea.value = cue.text;
+    this.refreshRow(cue.id);
+    this.markDirty();
   }
 
   // --- fade ----------------------------------------------------------------
@@ -1152,6 +1262,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.video?.removeEventListener("timeupdate", this.onTimeUpdate);
     this.timeline?.stopPlayheadLoop();
     if (this.posOverlay) this.exitPosition();
+    if (this.clipOverlay) this.exitClip();
     this.rightEl.textContent = "";
     const host = el("div", "se-playerhost") as HTMLDivElement;
     this.rightEl.appendChild(host);
@@ -1329,6 +1440,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   destroy(): void {
     window.clearTimeout(this.subtitleTimer);
     document.removeEventListener("keydown", this.onPosKey, true);
+    document.removeEventListener("keydown", this.onClipKey, true);
     this.waveAbort?.abort();
     this.video?.removeEventListener("timeupdate", this.onTimeUpdate);
     this.timeline?.destroy();
