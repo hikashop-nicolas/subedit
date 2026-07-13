@@ -383,11 +383,15 @@ translate mode (two-column original/translation).
   multilingual auto-detect, download-on-demand + cache, model-size selector +
   guidance, translate-to-English task); engine-agnostic segmentToCues; toolbar
   generate dialog. Becomes a "generate a track" action under multi-track.
-- **Phase 5, media-anchored multi-track** (revised direction, the current focus):
-  track model + switcher; open video -> load embedded sub tracks + audio
-  (extractMkvInfo); translate-track-to-track (m2m100 / NLLB, user-selectable);
-  mux-save via the mediabunny S_TEXT/ASS fork (ASS-in-MKV is a required, not
-  optional, capability). See the media-anchored + mux sections above.
+- **Phase 5, media-anchored multi-track** DONE (the core): track model +
+  switcher; open video -> load embedded sub tracks (MKV + progressive/fragmented
+  MP4) + audio; transcribe (Whisper) and translate (m2m100/NLLB) into new tracks;
+  mux-save with styled ASS-in-MKV via the mediabunny S_TEXT/ASS fork
+  (github:hikashop-nicolas/mediabunny, branch subedit-s_text-ass; interim
+  file:../mediabunny). Remaining follow-ups: publish + pin the fork; fix
+  mediabunny's MP4+WebVTT finalize assert to enable MP4 subtitle output; stream
+  mux to disk (showSaveFilePicker + StreamTarget) for multi-GB files instead of
+  BufferTarget; live translation generation tuning.
 - **Phase 6, Omnitext**: subtitle.impl.ts, format registration, preferred
   editor wiring, git dep pin, ship to Pages + APK.
 - **Later / out of scope for now**: Web Speech / cloud ASR backends (MP4 subtitle
