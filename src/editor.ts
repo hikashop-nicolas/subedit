@@ -121,7 +121,7 @@ function injectStyles(): void {
 .se-effectgroup{gap:3px;}
 .se-effectrow{display:flex;gap:6px;align-items:flex-end;}
 .se-effectparams{display:flex;gap:6px;align-items:flex-end;}
-.se-effectgroup select{font:inherit;padding:3px 6px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);}
+.se-effectgroup select,.se-selfield select{font:inherit;padding:3px 6px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);}
 .se-numfield input{width:56px;}
 .se-actorfield input,.se-effectfield input{width:100px;}
 .se-checkfield{flex-direction:row;align-items:center;gap:5px;}
@@ -882,8 +882,13 @@ class SubtitleEditor implements SubtitleEditorHandle {
   // cue already uses it) plus parameter fields for the chosen effect.
   private assEffectField(cue: Cue): HTMLElement {
     const PREFIX: Record<string, string> = { banner: "Banner", scrollup: "Scroll up", scrolldown: "Scroll down", karaoke: "Karaoke" };
-    const SPECS: Record<string, { label: string; def: string; check?: boolean }[]> = {
-      banner: [{ label: t("effDelay"), def: "40" }, { label: t("effLtr"), def: "0", check: true }, { label: t("effFade"), def: "0" }],
+    type ParamSpec = { label: string; def: string; options?: [string, string][] };
+    const SPECS: Record<string, ParamSpec[]> = {
+      banner: [
+        { label: t("effDelay"), def: "40" },
+        { label: t("direction"), def: "0", options: [["0", t("rightToLeft")], ["1", t("leftToRight")]] },
+        { label: t("effFade"), def: "0" },
+      ],
       scrollup: [{ label: t("effY1"), def: "0" }, { label: t("effY2"), def: "0" }, { label: t("effDelay"), def: "40" }, { label: t("effFade"), def: "0" }],
       scrolldown: [{ label: t("effY1"), def: "0" }, { label: t("effY2"), def: "0" }, { label: t("effDelay"), def: "40" }, { label: t("effFade"), def: "0" }],
     };
@@ -924,22 +929,30 @@ class SubtitleEditor implements SubtitleEditorHandle {
       }
       const spec = SPECS[t2];
       const inputs = spec.map((s, i) => {
-        const wrap = el("label", "se-field " + (s.check ? "se-checkfield" : "se-numfield"), s.label);
-        const input = document.createElement("input");
-        if (s.check) {
-          input.type = "checkbox";
-          wrap.title = t("effLtrHint");
-          input.checked = (parts[i] ?? s.def) !== "0" && (parts[i] ?? s.def) !== "";
+        const wrap = el("label", "se-field " + (s.options ? "se-selfield" : "se-numfield"), s.label);
+        let input: HTMLInputElement | HTMLSelectElement;
+        if (s.options) {
+          const sel2 = document.createElement("select");
+          for (const [v, l] of s.options) {
+            const o = document.createElement("option");
+            o.value = v;
+            o.textContent = l;
+            sel2.appendChild(o);
+          }
+          sel2.value = parts[i] ?? s.def;
+          input = sel2;
         } else {
-          input.type = "number";
-          input.value = parts[i] ?? s.def;
+          const n = document.createElement("input");
+          n.type = "number";
+          n.value = parts[i] ?? s.def;
+          input = n;
         }
         wrap.appendChild(input);
         params.appendChild(wrap);
-        return { input, check: s.check };
+        return input;
       });
-      const rebuild = () => setEffect(`${PREFIX[t2]};${inputs.map((x) => (x.check ? (x.input.checked ? "1" : "0") : x.input.value || "0")).join(";")}`);
-      inputs.forEach((x) => x.input.addEventListener("change", rebuild));
+      const rebuild = () => setEffect(`${PREFIX[t2]};${inputs.map((x) => x.value || "0").join(";")}`);
+      inputs.forEach((x) => x.addEventListener("change", rebuild));
       if (commit) rebuild();
     };
     sel.addEventListener("change", () => build(sel.value, [], true));
