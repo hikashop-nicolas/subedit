@@ -78,12 +78,15 @@ export interface Track {
 // as the worker streams batches; `parsed`/`refs` map each translatable run back to its cue so
 // results can be spliced in without disturbing tags. Can be paused/resumed/stopped.
 interface TranslationJob {
-  run: TranslateRun;
-  state: "running" | "paused";
+  run: TranslateRun | null; // null while stopped/errored (no live worker)
+  state: "running" | "paused" | "error";
   stage: "download" | "translate";
   device?: "webgpu" | "wasm";
   ratio: number;
   plan: TranslationPlan;
+  opts: { model: string; srcLang: string; tgtLang: string }; // to resume/retry a fresh pass
+  translated: boolean[]; // per unique text; survives errors so retry only does the rest
+  errorMsg?: string;
   done: number; // unique texts translated so far
   total: number; // total unique texts to translate
 }
@@ -157,6 +160,8 @@ function injectStyles(): void {
 .se-track-name{cursor:pointer;font-size:12px;}
 .se-jobstrip{display:none;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid var(--se-border);background:var(--se-head);flex-shrink:0;}
 .se-jobstrip.on{display:flex;}
+.se-jobstrip.err .se-job-fill{background:var(--se-bad);}
+.se-jobstrip.err .se-job-label{color:var(--se-bad);}
 .se-job-label{font-size:12px;color:var(--se-muted);white-space:nowrap;}
 .se-job-bar{flex:1 1 auto;height:6px;border-radius:3px;background:var(--se-border);overflow:hidden;}
 .se-job-fill{height:100%;background:var(--se-accent);transition:width .2s linear;}
@@ -449,7 +454,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     if (this.tracks.length <= 1) return;
     const idx = this.tracks.findIndex((t) => t.id === id);
     if (idx < 0) return;
-    this.tracks[idx].job?.run.cancel();
+    this.tracks[idx].job?.run?.cancel();
     this.tracks.splice(idx, 1);
     if (this.activeTrackId === id) {
       this.activeTrackId = this.tracks[Math.min(idx, this.tracks.length - 1)].id;
@@ -1992,21 +1997,41 @@ class SubtitleEditor implements SubtitleEditorHandle {
       label: targetLabel,
       language: targetCode,
       doc,
-      job: { run: null as unknown as TranslateRun, state: "running", stage: "download", ratio: 0, plan, done: 0, total: plan.uniqueTexts.length },
+      job: { run: null, state: "running", stage: "download", ratio: 0, plan, opts, translated: new Array(plan.uniqueTexts.length).fill(false), done: 0, total: plan.uniqueTexts.length },
     };
     this.tracks.push(track);
     this.switchTrack(track.id);
     this.markDirty();
+    // First pass covers every unique text.
+    this.runTranslationPass(track, plan.uniqueTexts.map((_t, u) => u));
+  }
 
-    const job = track.job!;
-    job.run = runTranslate(plan.uniqueTexts, opts, {
+  // Spawn a worker over the given unique-text indices and stream results back. Used both for the
+  // initial pass (all indices) and for a retry (only the not-yet-translated indices), so an
+  // interrupted job can be resumed without redoing finished lines.
+  private runTranslationPass(track: Track, uniqueIndices: number[]): void {
+    const job = track.job;
+    if (!job) return;
+    if (!uniqueIndices.length) {
+      this.finishTranslateJob(track, false);
+      return;
+    }
+    job.state = "running";
+    job.errorMsg = undefined;
+    job.stage = "download";
+    this.renderJobStrip();
+    this.renderTrackBar();
+    const texts = uniqueIndices.map((u) => job.plan.uniqueTexts[u]);
+    job.run = runTranslate(texts, job.opts, {
       onProgress: (p) => {
         job.stage = p.stage === "download" ? "download" : "translate";
-        job.ratio = p.ratio;
+        // Translate progress is overall (done/total) so a resume continues the bar instead of
+        // restarting it; the worker's own ratio only tracks this pass.
+        job.ratio = p.stage === "download" ? p.ratio : job.total ? job.done / job.total : 0;
         this.renderJobStrip();
         this.renderTrackBar();
       },
-      onPartial: (start, texts) => this.applyTranslatedBatch(track, start, texts),
+      onPartial: (start, batch) => this.applyTranslatedBatch(track, uniqueIndices, start, batch),
       onDevice: (device) => {
         job.device = device;
         this.renderJobStrip();
@@ -2014,22 +2039,20 @@ class SubtitleEditor implements SubtitleEditorHandle {
     });
     job.run.done
       .then((res) => this.finishTranslateJob(track, res.stopped))
-      .catch((e) => {
-        this.toast(`${t("translateError")}: ${e instanceof Error ? e.message : String(e)}`);
-        this.finishTranslateJob(track, true);
-      });
+      .catch((e) => this.pauseTranslateOnError(track, e));
   }
 
-  // Splice a translated batch into the track: each entry is one unique text, so fan it out to
-  // every cue/part that shares it, then rebuild the affected cues' text. Re-renders the
-  // list/preview only when this track is showing.
-  private applyTranslatedBatch(track: Track, start: number, texts: string[]): void {
+  // Splice a translated batch into the track: map each result back to its unique text via this
+  // pass's index list, fan it out to every cue/part that shares it, then rebuild those cues.
+  // Re-renders the list/preview only when this track is showing.
+  private applyTranslatedBatch(track: Track, uniqueIndices: number[], start: number, batch: string[]): void {
     const job = track.job;
     if (!job) return;
     const touched = new Set<number>();
-    texts.forEach((tx, k) => {
-      const u = start + k;
-      if (u >= job.plan.uniqueTexts.length) return;
+    batch.forEach((tx, k) => {
+      const u = uniqueIndices[start + k];
+      if (u === undefined || job.translated[u]) return;
+      job.translated[u] = true;
       job.done += 1;
       if (tx == null) return;
       for (const ci of applyUniqueTranslation(job.plan, u, tx)) touched.add(ci);
@@ -2045,6 +2068,34 @@ class SubtitleEditor implements SubtitleEditorHandle {
     }
     this.renderJobStrip();
     this.renderTrackBar();
+  }
+
+  // An error (e.g. a WebGPU device loss the worker couldn't recover from) leaves the job in
+  // place, paused in an "error" state, so the already-translated lines are kept and the user can
+  // retry to finish the rest instead of being stuck with a half-translated track.
+  private pauseTranslateOnError(track: Track, e: unknown): void {
+    const job = track.job;
+    if (!job) return;
+    job.run = null;
+    if (job.done >= job.total) {
+      this.finishTranslateJob(track, false); // everything landed despite the error
+      return;
+    }
+    job.state = "error";
+    job.stage = "translate";
+    job.ratio = job.total ? job.done / job.total : 0;
+    job.errorMsg = e instanceof Error ? e.message : String(e);
+    this.toast(`${t("translateError")}: ${job.errorMsg}`);
+    this.renderJobStrip();
+    this.renderTrackBar();
+  }
+
+  private retryTranslateJob(track: Track): void {
+    const job = track.job;
+    if (!job) return;
+    const remaining: number[] = [];
+    for (let u = 0; u < job.total; u += 1) if (!job.translated[u]) remaining.push(u);
+    this.runTranslationPass(track, remaining);
   }
 
   // Coalesce the (relatively costly) live subtitle re-push to the preview during a job.
@@ -2078,7 +2129,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
   private toggleTranslatePause(track: Track): void {
     const job = track.job;
-    if (!job) return;
+    if (!job || !job.run) return; // no live worker (errored) -> use retry instead
     if (job.state === "paused") {
       job.state = "running";
       job.run.resume();
@@ -2091,7 +2142,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
   private stopTranslateJob(track: Track): void {
     if (!track.job) return;
-    track.job.run.cancel(); // batches already applied stay; the rest keep the source text
+    track.job.run?.cancel(); // batches already applied stay; the rest keep the source text
     this.finishTranslateJob(track, true);
   }
 
@@ -2106,21 +2157,34 @@ class SubtitleEditor implements SubtitleEditorHandle {
       return;
     }
     this.jobStrip.classList.add("on");
+    this.jobStrip.classList.toggle("err", job.state === "error");
     const pct = Math.round(job.ratio * 100);
     const dev = job.device ? ` · ${job.device === "webgpu" ? t("asrUsingGpu") : t("asrUsingCpu")}` : "";
-    const text = job.stage === "download" ? `${t("asrDownloading")} ${pct}%` : `${t("translating")} ${job.done}/${job.total} (${pct}%)${dev}`;
+    let text: string;
+    if (job.state === "error") text = `⚠ ${t("translateInterrupted")} ${job.done}/${job.total}`;
+    else if (job.stage === "download") text = `${t("asrDownloading")} ${pct}%`;
+    else text = `${t("translating")} ${job.done}/${job.total} (${pct}%)${dev}`;
     const lab = el("span", "se-job-label", text);
     const bar = el("div", "se-job-bar");
     const fill = el("div", "se-job-fill");
     fill.style.width = `${pct}%`;
     bar.appendChild(fill);
-    const pauseBtn = el("button", "se-job-btn", job.state === "paused" ? "▶" : "⏸");
-    pauseBtn.title = job.state === "paused" ? t("jobResume") : t("jobPause");
-    pauseBtn.addEventListener("click", () => this.toggleTranslatePause(track));
+    this.jobStrip.append(lab, bar);
+    if (job.state === "error") {
+      const retryBtn = el("button", "se-job-btn", "↻");
+      retryBtn.title = t("jobRetry");
+      retryBtn.addEventListener("click", () => this.retryTranslateJob(track));
+      this.jobStrip.appendChild(retryBtn);
+    } else {
+      const pauseBtn = el("button", "se-job-btn", job.state === "paused" ? "▶" : "⏸");
+      pauseBtn.title = job.state === "paused" ? t("jobResume") : t("jobPause");
+      pauseBtn.addEventListener("click", () => this.toggleTranslatePause(track));
+      this.jobStrip.appendChild(pauseBtn);
+    }
     const stopBtn = el("button", "se-job-btn", "⏹");
     stopBtn.title = t("jobStop");
     stopBtn.addEventListener("click", () => this.stopTranslateJob(track));
-    this.jobStrip.append(lab, bar, pauseBtn, stopBtn);
+    this.jobStrip.appendChild(stopBtn);
   }
 
   private insertTranscribedCues(segs: { startMs: number; endMs: number; text: string }[], mode: "append" | "replace"): void {
