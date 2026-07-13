@@ -132,8 +132,10 @@ function injectStyles(): void {
 .se-toolbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 8px;border-bottom:1px solid var(--se-border);background:var(--se-head);}
 .se-toolbar b{font-size:13px;margin-right:6px;}
 .se-toolbar .se-sp{flex:1 1 auto;}
-.se-tracks{display:flex;gap:4px;align-items:center;padding:4px 8px;border-bottom:1px solid var(--se-border);background:var(--se-head);overflow-x:auto;}
-.se-track{display:flex;align-items:center;gap:4px;padding:3px 4px 3px 10px;border:1px solid var(--se-border);border-radius:6px;background:var(--se-bg);white-space:nowrap;}
+.se-tracks{display:flex;gap:4px;align-items:center;padding:4px 8px;border-bottom:1px solid var(--se-border);background:var(--se-head);overflow-x:auto;flex-shrink:0;}
+.se-toolbar{flex-shrink:0;}
+.se-track{display:flex;align-items:center;gap:4px;padding:3px 4px 3px 10px;border:1px solid var(--se-border);border-radius:6px;background:var(--se-bg);white-space:nowrap;flex-shrink:0;}
+.se-track-add{flex-shrink:0;}
 .se-track.on{border-color:var(--se-accent);background:var(--se-sel);color:var(--se-sel-fg);}
 .se-track-name{cursor:pointer;font-size:12px;}
 .se-track-x{border:none;background:none;color:var(--se-muted);cursor:pointer;font-size:14px;line-height:1;padding:0 3px;border-radius:4px;}
@@ -148,7 +150,7 @@ function injectStyles(): void {
 .se-iconbtn svg{display:block;}
 .se-count{color:var(--se-muted);font-size:12px;}
 .se-body{flex:1 1 auto;display:flex;min-height:0;}
-.se-left{flex:1 1 55%;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--se-border);}
+.se-left{flex:1 1 55%;display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--se-border);}
 .se-right{flex:1 1 45%;display:flex;flex-direction:column;min-width:0;background:#000;position:relative;}
 .se-listhead,.se-row{display:grid;grid-template-columns:44px 96px 96px 52px 44px 1fr;align-items:center;gap:6px;padding:0 8px;}
 .se-ass .se-listhead,.se-ass .se-row{grid-template-columns:44px 96px 96px 52px 44px 110px 1fr;}
