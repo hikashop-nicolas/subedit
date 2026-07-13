@@ -17,7 +17,9 @@ import {
   newCueId,
   parseTimestamp,
   sortCues,
+  visibleText,
 } from "./cue";
+import { wrapLines } from "./transcribe/segment";
 import { parseSubtitles, serializeSubtitles, convertDoc } from "./subtitles";
 import { styleNames, assColorToHex, makeDefaultStyle, uniqueStyleName, getPlayRes, embeddedFontNames } from "./ass";
 import { openStyleEditor, openScriptProperties } from "./styles-editor";
@@ -107,6 +109,7 @@ const ICON = {
   draw: svgIcon('<path d="M11 3.5l1.5 1.5-7 7L3.5 13l1-2z"/><path d="M10 4.5l1.5 1.5"/>'),
   save: svgIcon('<path d="M8 2.5v7.5M5 7.5l3 3 3-3M3.5 13h9"/>'),
   transcribe: svgIcon('<path d="M3 8v0M5.5 5.5v5M8 3.5v9M10.5 6v4M13 8v0"/><path d="M11 13.5l1 1 2-2.5" opacity="0.7"/>'),
+  translate: svgIcon('<circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2.2 1.8 2.2 10.2 0 12M8 2c-2.2 1.8-2.2 10.2 0 12"/>'),
 };
 
 let stylesInjected = false;
@@ -325,6 +328,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     bar.appendChild(this.scriptBtn);
 
     bar.appendChild(this.iconButton(ICON.transcribe, t("autoTranscribe"), () => this.openTranscribe()));
+    bar.appendChild(this.iconButton(ICON.translate, t("translateTrack"), () => this.openTranslate()));
 
     const sp = el("span", "se-sp");
     bar.appendChild(sp);
@@ -1847,6 +1851,39 @@ class SubtitleEditor implements SubtitleEditorHandle {
         onResult: (cues, mode) => this.insertTranscribedCues(cues, mode),
       });
     });
+  }
+
+  private activeTrack(): Track {
+    return this.tracks.find((t) => t.id === this.activeTrackId) ?? this.tracks[0];
+  }
+
+  private addTrack(doc: SubtitleDoc, label: string, language = ""): void {
+    const id = newTrackId();
+    this.tracks.push({ id, label, language, doc });
+    this.switchTrack(id);
+    this.markDirty();
+  }
+
+  // Translate the active track: lazily open the translate dialog over its cue texts, then
+  // add the result as a new track sharing the source timing/styles.
+  private openTranslate(): void {
+    const source = this.activeTrack();
+    void import("./transcribe/ui").then(({ openTranslateDialog }) => {
+      openTranslateDialog({
+        cueTexts: () => source.doc.cues.map((c) => visibleText(c.text)),
+        sourceLanguage: () => source.language,
+        onResult: (translations, targetCode, targetLabel) => this.addTranslatedTrack(source, translations, targetCode, targetLabel),
+      });
+    });
+  }
+
+  private addTranslatedTrack(source: Track, translations: string[], targetCode: string, targetLabel: string): void {
+    const doc = structuredClone(source.doc) as SubtitleDoc;
+    doc.cues = doc.cues.map((c, i) => {
+      const wrapped = wrapLines(translations[i] ?? visibleText(c.text), 42, 2);
+      return { ...c, id: newCueId(), text: doc.format === "ass" ? wrapped.replace(/\n/g, "\\N") : wrapped };
+    });
+    this.addTrack(doc, targetLabel, targetCode);
   }
 
   private insertTranscribedCues(segs: { startMs: number; endMs: number; text: string }[], mode: "append" | "replace"): void {

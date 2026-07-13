@@ -1,8 +1,9 @@
 // The "Auto-transcribe" dialog: pick a model + language, run Whisper on the loaded (or a
 // chosen) media file, and hand the resulting cues back to the editor. Keeps the heavy
 // transcribe modules (which pull in transformers.js) behind this lazily-imported file.
-import { WHISPER_MODELS, DEFAULT_WHISPER_MODEL } from "./backend";
+import { WHISPER_MODELS, DEFAULT_WHISPER_MODEL, TRANSLATE_MODELS, DEFAULT_TRANSLATE_MODEL, TRANSLATE_LANGS } from "./backend";
 import { runWhisper, type WhisperRun } from "./whisper";
+import { runTranslate, type TranslateRun } from "./translate";
 import { decodeToMono16k } from "./audio";
 import { segmentToCues, type SegCue } from "./segment";
 import { t } from "../i18n";
@@ -250,6 +251,150 @@ export function openTranscribeDialog(host: TranscribeHost): void {
       status.classList.remove("on");
       startBtn.disabled = false;
       modelSel.disabled = langSel.disabled = false;
+    }
+  });
+}
+
+// The "Translate track" dialog: pick a source + target language and a translation model,
+// run it over the active track's cue texts, and hand the translations back to the editor.
+export interface TranslateHost {
+  cueTexts(): string[]; // the source track's per-cue visible text
+  sourceLanguage(): string; // "" if unknown
+  onResult(translations: string[], targetCode: string, targetLabel: string): void;
+}
+
+export function openTranslateDialog(host: TranslateHost): void {
+  injectCss();
+  let run: TranslateRun | null = null;
+
+  const back = document.createElement("div");
+  back.className = "se-asr-back";
+  const modal = document.createElement("div");
+  modal.className = "se-asr";
+  back.appendChild(modal);
+
+  const head = document.createElement("div");
+  head.className = "se-asr-head";
+  const h3 = document.createElement("h3");
+  h3.textContent = t("translateTitle");
+  head.appendChild(h3);
+
+  const body = document.createElement("div");
+  body.className = "se-asr-body";
+  const intro = document.createElement("p");
+  intro.className = "se-asr-intro";
+  intro.textContent = t("translateIntro");
+  body.appendChild(intro);
+
+  const langSelect = (label: string, def: string): { wrap: HTMLElement; sel: HTMLSelectElement } => {
+    const wrap = document.createElement("label");
+    wrap.textContent = label;
+    const sel = document.createElement("select");
+    for (const l of TRANSLATE_LANGS) {
+      const o = document.createElement("option");
+      o.value = l.code;
+      o.textContent = l.label;
+      sel.appendChild(o);
+    }
+    sel.value = def;
+    wrap.appendChild(sel);
+    return { wrap, sel };
+  };
+
+  const src = langSelect(t("sourceLang"), TRANSLATE_LANGS.some((l) => l.code === host.sourceLanguage()) ? host.sourceLanguage() : "ja");
+  const tgt = langSelect(t("targetLang"), "en");
+  body.append(src.wrap, tgt.wrap);
+
+  const modelWrap = document.createElement("label");
+  modelWrap.textContent = t("mtModel");
+  const modelSel = document.createElement("select");
+  for (const m of TRANSLATE_MODELS) {
+    const o = document.createElement("option");
+    o.value = m.id;
+    o.textContent = `${m.label} (~${m.sizeMb} MB)`;
+    o.title = t(m.descKey);
+    modelSel.appendChild(o);
+  }
+  modelSel.value = DEFAULT_TRANSLATE_MODEL;
+  modelWrap.appendChild(modelSel);
+  body.appendChild(modelWrap);
+  const modelDesc = document.createElement("p");
+  modelDesc.className = "se-asr-intro";
+  const syncDesc = () => (modelDesc.textContent = t(TRANSLATE_MODELS.find((m) => m.id === modelSel.value)?.descKey ?? ""));
+  modelSel.addEventListener("change", syncDesc);
+  syncDesc();
+  body.appendChild(modelDesc);
+
+  const status = document.createElement("div");
+  status.className = "se-asr-status";
+  const bar = document.createElement("div");
+  bar.className = "se-asr-bar";
+  const barFill = document.createElement("div");
+  bar.appendChild(barFill);
+  const statLine = document.createElement("div");
+  statLine.className = "se-asr-statline";
+  status.append(bar, statLine);
+  body.appendChild(status);
+
+  const err = document.createElement("div");
+  err.className = "se-asr-err";
+  body.appendChild(err);
+
+  const foot = document.createElement("div");
+  foot.className = "se-asr-foot";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "act";
+  cancelBtn.textContent = t("close");
+  const startBtn = document.createElement("button");
+  startBtn.className = "act primary";
+  startBtn.textContent = t("translateStart");
+  foot.append(cancelBtn, startBtn);
+
+  modal.append(head, body, foot);
+  document.body.appendChild(back);
+
+  const close = () => {
+    run?.cancel();
+    back.remove();
+  };
+  cancelBtn.addEventListener("click", close);
+  back.addEventListener("click", (e) => {
+    if (e.target === back) close();
+  });
+
+  startBtn.addEventListener("click", async () => {
+    err.textContent = "";
+    if (src.sel.value === tgt.sel.value) {
+      err.textContent = t("translateSameLang");
+      return;
+    }
+    const texts = host.cueTexts();
+    if (!texts.length) {
+      err.textContent = t("translateNoCues");
+      return;
+    }
+    startBtn.disabled = true;
+    src.sel.disabled = tgt.sel.disabled = modelSel.disabled = true;
+    status.classList.add("on");
+    try {
+      run = runTranslate(texts, { model: modelSel.value, srcLang: src.sel.value, tgtLang: tgt.sel.value }, (p) => {
+        if (p.stage === "download") {
+          statLine.textContent = `${t("asrDownloading")} ${Math.round(p.ratio * 100)}%`;
+          barFill.style.width = `${Math.round(p.ratio * 100)}%`;
+        } else {
+          statLine.textContent = t("translating");
+          barFill.style.width = `${Math.round(p.ratio * 100)}%`;
+        }
+      });
+      const translations = await run.done;
+      const label = TRANSLATE_LANGS.find((l) => l.code === tgt.sel.value)?.label ?? tgt.sel.value;
+      host.onResult(translations, tgt.sel.value, label);
+      back.remove();
+    } catch (e) {
+      err.textContent = `${t("translateError")}: ${e instanceof Error ? e.message : String(e)}`;
+      status.classList.remove("on");
+      startBtn.disabled = false;
+      src.sel.disabled = tgt.sel.disabled = modelSel.disabled = false;
     }
   });
 }
