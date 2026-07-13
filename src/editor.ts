@@ -899,8 +899,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
     group.append(el("span", "", t("effect")));
     const rowEl = el("div", "se-effectrow");
     const sel = document.createElement("select");
-    const opts: [string, string][] = [["none", t("effectNone")], ["banner", "Banner"], ["scrollup", t("scrollUp")], ["scrolldown", t("scrollDown")]];
-    if (type === "karaoke") opts.push(["karaoke", "Karaoke"]);
+    const opts: [string, string][] = [["none", t("effectNone")], ["banner", t("banner")], ["scrollup", t("scrollUp")], ["scrolldown", t("scrollDown")]];
+    if (type === "karaoke") opts.push(["karaoke", t("karaoke")]);
     for (const [v, l] of opts) {
       const o = document.createElement("option");
       o.value = v;
