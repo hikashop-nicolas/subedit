@@ -36,4 +36,5 @@ export { parseSubtitles, serializeSubtitles, detectFormat, convertDoc } from "./
 // bundle until these are actually called.
 export { runWhisper, type WhisperResult, type WhisperRun, type WhisperOptions } from "./transcribe/whisper";
 export { decodeToMono16k } from "./transcribe/audio";
+export { segmentToCues, wrapLines, type SegCue, type SegmentOptions } from "./transcribe/segment";
 export { WHISPER_MODELS, DEFAULT_WHISPER_MODEL, type WordTs, type WhisperModelInfo, type TranscribeProgress } from "./transcribe/backend";
