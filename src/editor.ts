@@ -928,6 +928,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
         const input = document.createElement("input");
         if (s.check) {
           input.type = "checkbox";
+          wrap.title = t("effLtrHint");
           input.checked = (parts[i] ?? s.def) !== "0" && (parts[i] ?? s.def) !== "";
         } else {
           input.type = "number";
