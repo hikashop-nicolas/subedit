@@ -97,43 +97,111 @@ Sync behaviors: double-click cue seeks; timeupdate highlights the current row
 - Interactions: drag cue edges (snap to other cues optional), drag cue body,
   double-click empty area to insert a cue, click to seek.
 
-## ASR: automatic transcription (new-file flow)
+## Phase 4: ASR / automatic transcription
 
-Pluggable backend interface so engines can be swapped:
+Decision (2026-07-13): **Whisper via transformers.js is the v1 and only engine.**
+Web Speech is dropped, even as a fallback: it is real-time only (25 min video =
+25 min), Chrome-only, phrase-level timing, and spotty on-device language coverage.
+Whisper gives word-level timestamps (the thing that makes auto-segmentation good),
+faster-than-real-time inference on WebGPU, ~99-language multilingual support with
+auto-detection, and runs fully locally. The `TranscribeBackend` interface stays so
+another engine could be added later, but we build only the Whisper backend.
+
+### Model delivery: download-on-demand, never bundled
+
+No model ships in the subedit bundle. transformers.js fetches the weights from the
+Hugging Face CDN on first use and caches them in the browser (Cache Storage /
+IndexedDB); every later run is offline. This keeps the shipped binary tiny while
+allowing best-quality models.
+
+- **Multilingual models only** (not the `.en` variants) so all ~99 Whisper
+  languages work with auto-detection. Use the Xenova/onnx-community ONNX builds
+  that transformers.js consumes (quantized for browser size).
+- **Model-size selector**, remembered per user, each downloaded on demand when
+  first chosen:
+  - tiny ~40 MB (fastest, roughest)
+  - base ~75 MB (DEFAULT, good balance)
+  - small ~150 MB (best quality, slower)
+- **Privacy**: the only network call is the one-time model download from the HF
+  CDN; audio never leaves the device. Surface this in the UI ("downloads the model
+  once, then works offline, your audio is never uploaded"). Optional future: a
+  self-hosted-weights toggle for zero third-party contact.
+- **CSP note**: on subedit's own GitHub Pages site the fetch is unrestricted; a
+  strict-CSP host embedding subedit (Omnitext) must allowlist the HF origin.
+
+### Interface (pluggable, but only Whisper implements it)
 
 ```ts
 interface TranscribeBackend {
-  available(): Promise<boolean>;
-  transcribe(media: HTMLMediaElement, opts: { lang?: string },
-             onCue: (cue: { startMs, endMs, text }) => void,
-             onProgress: (ratio: number) => void): { cancel(): void };
+  available(): Promise<boolean>;                 // WebGPU/WASM support probe
+  listModels(): { id: string; label: string; sizeMb: number }[];
+  transcribe(
+    audio: Float32Array,                         // 16 kHz mono, extracted once up front
+    opts: { model: string; language?: string },  // language omitted = auto-detect
+    onSegment: (seg: { startMs: number; endMs: number; text: string; words?: WordTs[] }) => void,
+    onProgress: (p: { stage: "download" | "transcribe"; ratio: number }) => void,
+  ): { cancel(): void };
 }
 ```
 
-**Backend 1 (v1): Web Speech API.** Chrome now supports passing a
-MediaStreamTrack as the recognition source and `processLocally = true` for
-on-device recognition, so the audio is not sent to Google when the on-device
-pack is available. Flow: `video.captureStream()`, take the audio track, start
-`SpeechRecognition` on it, play the video (element volume 0; NOTE verify in
-implementation whether captureStream audio is pre- or post-volume, the spec
-says capture is not affected by volume/muted but this must be tested), map
-result events to cues using result timestamps / media currentTime, split long
-results into readable cues (max 2 lines, max ~42 chars/line, CPS cap).
-Limitations to surface in the UI: runs in real time (a 25 min video takes
-25 min, show progress + partial cues appearing live), phrase-level timing
-accuracy, Chrome-only, language availability depends on the browser's
-on-device packs (fall back to cloud recognition only with an explicit user
-opt-in checkbox, privacy default is local-only).
+### Inference details
 
-**Backend 2 (later): Whisper via transformers.js.** Fully offline, word-level
-timestamps, faster than real time on WebGPU, but a 40-200MB model download
-(cached in browser storage) and a heavy dependency. Ship as a lazy opt-in
-second backend once the Web Speech path works. Not v1.
+- Run transformers.js in a **Web Worker** so the UI (and the waveform/preview)
+  stays responsive; post progress + segments back to the main thread.
+- **Backend**: prefer WebGPU (`device: "webgpu"`, fp16), fall back to WASM (quantized
+  int8) when WebGPU is unavailable. Report which is in use, and warn that WASM is
+  much slower.
+- **Audio**: decode the media to a 16 kHz mono `Float32Array` once (reuse
+  mediaplay's decode path / extractWaveformPeaks plumbing, which already handles
+  MKV/Dolby/DTS and streams large files), then chunk into ~30 s windows for
+  Whisper with a small overlap; use `return_timestamps: "word"` for word-level
+  timing, `chunk_length_s`/`stride_length_s` for the long-form pipeline.
+- Emit segments incrementally so cues appear live as chunks finish.
 
-**Entry points**: the same "Auto-transcribe" action serves both flows: a) new
-empty document (the empty-state panel offers "Load a video, then generate
-subtitles automatically"), b) existing document (toolbar button, appends or
-replaces after confirm).
+### Segmentation module (engine-agnostic, the quality lever)
+
+Separate, unit-tested `segmentToCues(words, opts)` that turns Whisper's word
+timestamps into readable cues, independent of the engine:
+
+- break on sentence-ending punctuation and on speech gaps over a threshold;
+- cap each cue at ~2 lines, ~42 chars/line, and a max CPS (reading speed); split
+  over-long spans at the nearest word boundary / punctuation;
+- snap cue start/end to the enclosing word timestamps; enforce a min duration and
+  a small inter-cue gap;
+- balance a 2-line cue's break near the middle at a word boundary.
+
+This is where subtitle quality lives; keep it pure and covered by golden tests.
+
+### UI / flow
+
+- **Entry points** (one "Auto-transcribe" action):
+  a) new empty doc: the empty-state panel offers "Load a video, then generate
+     subtitles"; b) existing doc: a toolbar button that appends, or replaces after
+     a confirm.
+- **Dialog**: model-size picker (with download size + cached state shown), language
+  = Auto by default with an override list, Start/Cancel.
+- **Progress**: two-phase bar (model download %, then transcription %), the WebGPU/
+  WASM badge, live partial cues streaming into the list, and a working Cancel that
+  aborts the worker.
+- Resulting cues land in the normal editor for correction; format defaults to SRT
+  for a fresh doc (convertible as usual).
+
+### New files / touch points
+
+- `src/transcribe/backend.ts` (interface + registry), `src/transcribe/whisper.ts`
+  (worker glue + model management), `src/transcribe/whisper.worker.ts` (transformers.js),
+  `src/transcribe/segment.ts` (+ `segment.test.ts`), `src/transcribe/ui.ts` (dialog);
+  editor.ts wires the toolbar button, empty-state action, and cue insertion, reusing
+  `loadPreviewMedia` and the audio-decode path.
+- transformers.js is a lazy dynamic import (kept out of the base bundle); the worker
+  and its WASM/WebGPU assets load only when transcription starts.
+
+### Spikes to de-risk early
+
+1. transformers.js Whisper in a Worker on GitHub Pages: model fetch + cache, WebGPU
+   path, `return_timestamps: "word"` shape, and cancellation.
+2. Decode-to-16kHz-mono from the existing mediaplay path for arbitrary containers.
+3. Segmentation quality on a couple of real clips (tune thresholds against goldens).
 
 ## Mux subtitles into the video file (export)
 
@@ -221,23 +289,27 @@ translate mode (two-column original/translation).
   group (vertical hidden for middle alignment); alignment "no alignment". FUTURE
   (not built): decoding embedded [Fonts] to real font names, complex 7-arg \fade,
   editing an existing drawing's points, bezier (b) drawing commands.
-- **Phase 4, ASR**: TranscribeBackend interface + Web Speech implementation,
-  empty-state generate flow, cue splitting heuristics.
+- **Phase 4, ASR**: TranscribeBackend interface + Whisper (transformers.js in a
+  Worker, WebGPU/WASM, multilingual auto-detect, download-on-demand + cache, model-
+  size selector); engine-agnostic segmentToCues; empty-state + toolbar generate
+  flow with two-phase progress and live cues. See the detailed section above.
 - **Phase 5, mux export**: "save into video" remux via mediabunny stream copy
   (WebVTT track), then the Matroska S_TEXT/ASS + S_TEXT/UTF8 muxer extension
   (upstream PR) so ASS keeps its styling in MKV.
 - **Phase 6, Omnitext**: subtitle.impl.ts, format registration, preferred
   editor wiring, git dep pin, ship to Pages + APK.
-- **Later / out of scope for now**: Whisper backend, MicroDVD (.sub) and other
-  niche text formats, image-based subtitles (VobSub/PGS need OCR, out of
-  scope), WYSIWYG ASS tag editing, translate mode.
+- **Later / out of scope for now**: Web Speech / cloud ASR backends, MicroDVD
+  (.sub) and other niche text formats, image-based subtitles (VobSub/PGS need OCR,
+  out of scope), WYSIWYG ASS tag editing, translate mode.
 
 ## Risks
 
-- Web Speech availability/quality varies (Chrome-only, per-language on-device
-  packs, phrase-level timings). Mitigation: feature-detect, show capability
-  status in the UI, keep the backend interface so Whisper can replace it.
-- captureStream + muted playback interaction needs a spike early in Phase 4.
+- Whisper model download is 40-150 MB on first use; mitigate with an explicit
+  size picker, cached-state indicator, download progress, and a base default.
+- WebGPU is not everywhere; the WASM fallback works but is much slower. Detect,
+  report which backend is active, and warn on WASM for long media.
+- transformers.js is heavy; keep it a lazy dynamic import + Worker so the base
+  bundle and the editor stay light.
 - mediaplay embed keyboard conflicts: solved by the embedded option, but the
   two projects now version-lock (subedit pins mediaplay like Omnitext pins its
   libs; verify fixes in the consumer's node_modules dist).

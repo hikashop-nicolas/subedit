@@ -32,3 +32,8 @@ export { parseSrt, serializeSrt } from "./srt";
 export { parseVtt, serializeVtt } from "./vtt";
 export { parseAss, serializeAss } from "./ass";
 export { parseSubtitles, serializeSubtitles, detectFormat, convertDoc } from "./subtitles";
+// Automatic transcription (Whisper). Loaded lazily; transformers.js stays out of the base
+// bundle until these are actually called.
+export { runWhisper, type WhisperResult, type WhisperRun, type WhisperOptions } from "./transcribe/whisper";
+export { decodeToMono16k } from "./transcribe/audio";
+export { WHISPER_MODELS, DEFAULT_WHISPER_MODEL, type WordTs, type WhisperModelInfo, type TranscribeProgress } from "./transcribe/backend";

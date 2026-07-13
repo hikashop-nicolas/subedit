@@ -27,6 +27,7 @@
     "prepare": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "mediaplay": "github:hikashop-nicolas/mediaplay"
   },
   "devDependencies": {
