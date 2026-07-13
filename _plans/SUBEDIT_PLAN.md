@@ -301,8 +301,19 @@ showSaveFilePicker + StreamTarget so multi-GB files never sit in memory.
     (github:hikashop-nicolas/mediabunny, matching the mediaplay pattern) consumed
     directly by subedit, and PR upstream. Embedded fonts from `extractMkvInfo`
     can be re-attached so styled tracks render with their intended fonts.
-  - Source container without subtitle support (or MOV/AVI): offer "save as
-    MKV" instead (same stream-copy, container swap).
+  - MP4 output soft subs: mediabunny's isobmff muxer already maps webvtt -> the
+    'wvtt' sample entry, but v1.50.8 ASSERTS during finalize when a WebVTT
+    subtitle track is present (video-only MP4 and MKV+webvtt both work). This is
+    a bug in an intended path, so the SAME fork fixes it. Policy: MP4 output
+    carries PLAIN-TEXT soft subs only (wvtt/tx3g) - MP4 cannot hold styled ASS -
+    so a styled ASS track saved to MP4 loses styling; steer styled tracks to MKV.
+  - Container / styling policy: MKV = full styled ASS (via the S_TEXT/ASS fork);
+    MP4 = plain-text soft subs (after the assert fix). Source container without
+    subtitle support (or MOV/AVI): offer "save as MKV" instead (stream-copy +
+    container swap).
+  - The fork (github:hikashop-nicolas/mediabunny, PR upstream later) thus has TWO
+    subtitle-write jobs: (1) Matroska S_TEXT/ASS + S_TEXT/UTF8; (2) fix the isobmff
+    WebVTT-into-MP4 finalize assert.
 - Round-trip check: reopen the produced file in the preview (mediaplay already
   extracts embedded tracks) as a built-in verification step.
 - Hard-burn (rendering subtitles into the picture, re-encode) is OUT of scope;
