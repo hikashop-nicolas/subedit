@@ -1923,14 +1923,10 @@ class SubtitleEditor implements SubtitleEditorHandle {
     // Save back into the source's container. MKV keeps ASS tracks styled (S_TEXT/ASS); MP4
     // and everything else can only hold plain-text WebVTT.
     const container = bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3 ? "mkv" : "mp4";
-    const subs = this.tracks.map((tr) =>
-      container === "mkv" && tr.doc.format === "ass"
-        ? { name: tr.label, language: tr.language, kind: "ass" as const, content: serializeSubtitles(tr.doc) }
-        : { name: tr.label, language: tr.language, kind: "vtt" as const, content: serializeSubtitles(convertDoc(tr.doc, "vtt")) },
-    );
 
-    // Ask for the destination file synchronously (keeps the click's user activation) before
-    // the async work begins.
+    // Ask for the destination file FIRST, before serializing the tracks: serializing thousands
+    // of cues across tracks can take long enough to expire the click's transient user
+    // activation, after which showSaveFilePicker throws and no dialog appears.
     const picker = (window as unknown as { showSaveFilePicker?: (o: unknown) => Promise<FileSystemFileHandle> }).showSaveFilePicker;
     let handle: FileSystemFileHandle | null = null;
     if (picker) {
@@ -1941,12 +1937,25 @@ class SubtitleEditor implements SubtitleEditorHandle {
       }
     }
 
-    this.toast(t("savingVideo"));
+    const subs = this.tracks.map((tr) =>
+      container === "mkv" && tr.doc.format === "ass"
+        ? { name: tr.label, language: tr.language, kind: "ass" as const, content: serializeSubtitles(tr.doc) }
+        : { name: tr.label, language: tr.language, kind: "vtt" as const, content: serializeSubtitles(convertDoc(tr.doc, "vtt")) },
+    );
+
+    this.countEl.textContent = t("savingVideo");
+    let lastTick = 0;
+    const onBytes = (written: number): void => {
+      const now = Date.now();
+      if (now - lastTick < 250) return; // throttle DOM updates
+      lastTick = now;
+      this.countEl.textContent = `${t("savingVideo")} ${(written / 1e6).toFixed(1)} MB`;
+    };
     try {
       const { muxIntoContainer, muxToFile } = await import("./mux");
       if (handle) {
         const writable = await (handle as unknown as { createWritable(): Promise<import("./mux").FileWritable> }).createWritable();
-        await muxToFile(bytes, subs, container, writable);
+        await muxToFile(bytes, subs, container, writable, onBytes);
       } else {
         const out = await muxIntoContainer(bytes, subs, container);
         const mime = container === "mkv" ? "video/x-matroska" : "video/mp4";
@@ -1957,8 +1966,10 @@ class SubtitleEditor implements SubtitleEditorHandle {
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
+      this.countEl.textContent = t("cueCount", { n: this.doc.cues.length });
       this.toast(t("saveVideoDone"));
     } catch (e) {
+      this.countEl.textContent = t("cueCount", { n: this.doc.cues.length });
       this.toast(`${t("saveVideoError")}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }

@@ -41,27 +41,39 @@ export interface MuxSubtitle {
 // 2-letter -> ISO 639-2/T for mediabunny's track metadata.
 const LANG2TO3: Record<string, string> = { en: "eng", fr: "fra", ja: "jpn", es: "spa", de: "deu", it: "ita", pt: "por", nl: "nld", ru: "rus", zh: "zho", ko: "kor", ar: "ara" };
 
-// Buffer the whole output in memory and return it. Fine for typical files.
+// Buffer the whole output in memory and return it. Fine for typical files; the buffer target
+// supports random access so the output is seekable (Cues/moov in place).
 export async function muxIntoContainer(mediaBytes: Uint8Array, subs: MuxSubtitle[], container: MuxContainer): Promise<Uint8Array> {
   const target = new BufferTarget();
-  await runMux(mediaBytes, subs, container, target);
+  await runMux(mediaBytes, subs, container, target, false);
   return new Uint8Array(target.buffer as ArrayBuffer);
 }
 
 // Stream the output straight to a file (showSaveFilePicker handle), so multi-GB saves never
 // buffer the whole result in RAM. StreamTarget's chunks match FileSystemWritableFileStream.
-export async function muxToFile(mediaBytes: Uint8Array, subs: MuxSubtitle[], container: MuxContainer, file: FileWritable): Promise<void> {
+// Uses append-only output (forward-only writes, unknown-size elements): without it the muxer
+// seeks backward to patch cluster/segment sizes, which a forward stream can't do, so it would
+// buffer the ENTIRE file and flush nothing until finalize (a multi-GB stall / 0-byte file).
+export async function muxToFile(mediaBytes: Uint8Array, subs: MuxSubtitle[], container: MuxContainer, file: FileWritable, onBytes?: (written: number) => void): Promise<void> {
+  let written = 0;
   const stream = new WritableStream<StreamTargetChunk>({
-    write: (chunk) => file.write(chunk),
+    write: (chunk) => {
+      written += chunk.data.byteLength;
+      onBytes?.(written);
+      return file.write(chunk);
+    },
     close: () => file.close(),
     abort: (reason) => file.abort?.(reason) ?? Promise.resolve(),
   });
-  await runMux(mediaBytes, subs, container, new StreamTarget(stream));
+  await runMux(mediaBytes, subs, container, new StreamTarget(stream), true);
 }
 
-async function runMux(mediaBytes: Uint8Array, subs: MuxSubtitle[], container: MuxContainer, target: Target): Promise<void> {
+async function runMux(mediaBytes: Uint8Array, subs: MuxSubtitle[], container: MuxContainer, target: Target, appendOnly: boolean): Promise<void> {
   const input = new Input({ source: new BlobSource(new Blob([mediaBytes.slice()])), formats: ALL_FORMATS });
-  const format: OutputFormat = container === "mp4" ? new Mp4OutputFormat() : new MkvOutputFormat();
+  // MKV needs appendOnly to stream (else it seeks back to patch sizes and buffers everything).
+  // MP4 needs nothing: mediabunny defaults a StreamTarget to fastStart:false (moov at the end,
+  // forward-only) and a BufferTarget to in-memory fast start, both correct for their path.
+  const format: OutputFormat = container === "mp4" ? new Mp4OutputFormat() : new MkvOutputFormat({ appendOnly });
   const output = new Output({ format, target });
 
   // Stream-copy every video / audio track (no decode/encode).
