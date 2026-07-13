@@ -70,6 +70,7 @@ const ICON = {
   fade: svgIcon('<path d="M2 13l5-10v10z" fill="currentColor" stroke="none"/><path d="M14 13L9 3v10z" fill="currentColor" stroke="none" opacity="0.5"/>'),
   transform: svgIcon('<path d="M12.5 5A5.5 5.5 0 1 0 13 8.5"/><path d="M11 2.5v3h3"/>'),
   clip: svgIcon('<path d="M2 5h9v9M5 2v3M5 5h6v6"/><rect x="2" y="8" width="6" height="6" rx="1" stroke-dasharray="2 1.5"/>'),
+  draw: svgIcon('<path d="M11 3.5l1.5 1.5-7 7L3.5 13l1-2z"/><path d="M10 4.5l1.5 1.5"/>'),
   save: svgIcon('<path d="M8 2.5v7.5M5 7.5l3 3 3-3M3.5 13h9"/>'),
 };
 
@@ -143,8 +144,10 @@ function injectStyles(): void {
 .se-posdone{position:absolute;top:8px;right:8px;cursor:pointer;font:600 12px system-ui;padding:4px 10px;border:1px solid var(--se-accent);border-radius:6px;background:var(--se-accent);color:#fff;}
 .se-poshint{position:absolute;bottom:8px;left:0;right:0;text-align:center;font:600 11px system-ui;color:#fff;text-shadow:0 1px 2px #000;pointer-events:none;}
 .se-cliprect{position:absolute;border:1px dashed #fff;background:rgba(255,255,255,0.12);box-shadow:0 0 0 9999px rgba(0,0,0,0.35);pointer-events:none;}
-.se-clipinv{right:74px;background:var(--se-head);color:var(--se-fg);}
-.se-clipinv.on{background:var(--se-accent);color:#fff;border-color:var(--se-accent);}
+.se-posbar{position:absolute;top:8px;right:8px;display:flex;gap:8px;z-index:1;}
+.se-drawcanvas{position:absolute;inset:0;pointer-events:none;}
+.se-obtn{cursor:pointer;font:600 12px system-ui;padding:4px 10px;border:1px solid var(--se-border);border-radius:6px;background:var(--se-head);color:var(--se-fg);}
+.se-obtn.on,.se-obtn-primary{background:var(--se-accent);border-color:var(--se-accent);color:#fff;}
 .se-fadepop{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;padding:6px;border:1px solid var(--se-border);border-radius:6px;background:var(--se-bg);}
 .se-fadepop input{width:70px;}
 .se-empty,.se-noprev{flex:1 1 auto;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--se-muted);}
@@ -188,6 +191,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private posOverlay: HTMLDivElement | null = null;
   private positionCueId: string | null = null;
   private clipOverlay: HTMLDivElement | null = null;
+  private drawOverlay: HTMLDivElement | null = null;
   private wavePeaks: { peaks: Float32Array; peaksPerSec: number } | null = null;
   private rows = new Map<string, HTMLDivElement>();
   private rafPending = false;
@@ -433,6 +437,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     if (this.selectedId === id) return;
     if (this.posOverlay) this.exitPosition();
     if (this.clipOverlay) this.exitClip();
+    if (this.drawOverlay) this.exitDraw();
     const prev = this.selectedId;
     this.selectedId = id;
     if (prev) this.refreshRow(prev);
@@ -611,6 +616,16 @@ class SubtitleEditor implements SubtitleEditorHandle {
     clipBtn.addEventListener("click", () => this.toggleClip(cue));
     bar.appendChild(clipBtn);
 
+    // Draw: click points on the preview to build a vector shape (\p).
+    const drawBtn = document.createElement("button");
+    drawBtn.type = "button";
+    drawBtn.className = "se-inbtn se-posbtn" + (this.drawOverlay ? " on" : "");
+    drawBtn.innerHTML = ICON.draw;
+    drawBtn.title = t("draw");
+    drawBtn.addEventListener("mousedown", (e) => e.preventDefault());
+    drawBtn.addEventListener("click", () => this.toggleDraw(cue));
+    bar.appendChild(drawBtn);
+
     return bar;
   }
 
@@ -634,6 +649,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
       return;
     }
     if (this.clipOverlay) this.exitClip();
+    if (this.drawOverlay) this.exitDraw();
     if (!this.video) {
       this.toast(t("posNeedsVideo"));
       return;
@@ -736,6 +752,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
       return;
     }
     if (this.posOverlay) this.exitPosition();
+    if (this.drawOverlay) this.exitDraw();
     if (!this.video) {
       this.toast(t("posNeedsVideo"));
       return;
@@ -750,8 +767,9 @@ class SubtitleEditor implements SubtitleEditorHandle {
     const band = el("div", "se-cliprect");
     band.style.display = "none";
     let inverse = /\\iclip\(/.test(cue.text);
+    const bar = el("div", "se-posbar");
     const inv = document.createElement("button");
-    inv.className = "se-posdone se-clipinv" + (inverse ? " on" : "");
+    inv.className = "se-obtn" + (inverse ? " on" : "");
     inv.textContent = t("inverse");
     inv.addEventListener("pointerdown", (e) => e.stopPropagation());
     inv.addEventListener("click", (e) => {
@@ -760,10 +778,11 @@ class SubtitleEditor implements SubtitleEditorHandle {
       inv.classList.toggle("on", inverse);
     });
     const done = document.createElement("button");
-    done.className = "se-posdone";
+    done.className = "se-obtn se-obtn-primary";
     done.textContent = t("done");
     done.addEventListener("pointerdown", (e) => e.stopPropagation());
     done.addEventListener("click", () => this.exitClip());
+    bar.append(inv, done);
     const hint = el("div", "se-poshint", t("clipHint"));
     let start: { x: number; y: number } | null = null;
     const updateBand = (cx: number, cy: number) => {
@@ -788,7 +807,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
       }
       start = null;
     });
-    ov.append(band, inv, done, hint);
+    ov.append(band, bar, hint);
     this.rightEl.appendChild(ov);
     this.clipOverlay = ov;
     document.addEventListener("keydown", this.onClipKey, true);
@@ -819,6 +838,118 @@ class SubtitleEditor implements SubtitleEditorHandle {
     if (this.detailTextarea) this.detailTextarea.value = cue.text;
     this.refreshRow(cue.id);
     this.markDirty();
+  }
+
+  // --- vector drawing (\p): click points on the preview to build a shape ---
+
+  private toggleDraw(cue: Cue): void {
+    if (this.drawOverlay) {
+      this.exitDraw();
+      return;
+    }
+    if (this.posOverlay) this.exitPosition();
+    if (this.clipOverlay) this.exitClip();
+    if (!this.video) {
+      this.toast(t("posNeedsVideo"));
+      return;
+    }
+    const ov = el("div", "se-posoverlay se-drawoverlay") as HTMLDivElement;
+    const cr = this.videoContentRect();
+    const rr = this.rightEl.getBoundingClientRect();
+    ov.style.left = `${cr.left - rr.left}px`;
+    ov.style.top = `${cr.top - rr.top}px`;
+    ov.style.width = `${cr.width}px`;
+    ov.style.height = `${cr.height}px`;
+    const canvas = document.createElement("canvas");
+    canvas.className = "se-drawcanvas";
+    canvas.width = Math.round(cr.width);
+    canvas.height = Math.round(cr.height);
+    const ctx = canvas.getContext("2d")!;
+    const pts: { x: number; y: number }[] = []; // overlay-local coords
+
+    const redraw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!pts.length) return;
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (const p of pts.slice(1)) ctx.lineTo(p.x, p.y);
+      if (pts.length > 2) ctx.closePath();
+      ctx.fillStyle = "rgba(96,165,250,0.35)";
+      ctx.strokeStyle = "#60a5fa";
+      ctx.lineWidth = 1.5;
+      if (pts.length > 2) ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#fff";
+      for (const p of pts) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    };
+    ov.addEventListener("pointerdown", (e) => {
+      const r = ov.getBoundingClientRect();
+      pts.push({ x: e.clientX - r.left, y: e.clientY - r.top });
+      redraw();
+    });
+
+    const bar = el("div", "se-posbar");
+    const mkBtn = (label: string, primary: boolean, fn: () => void) => {
+      const b = document.createElement("button");
+      b.className = "se-obtn" + (primary ? " se-obtn-primary" : "");
+      b.textContent = label;
+      b.addEventListener("pointerdown", (e) => e.stopPropagation());
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        fn();
+      });
+      return b;
+    };
+    bar.append(
+      mkBtn(t("drawUndo"), false, () => {
+        pts.pop();
+        redraw();
+      }),
+      mkBtn(t("drawClear"), false, () => {
+        pts.length = 0;
+        redraw();
+      }),
+      mkBtn(t("apply"), true, () => this.applyDrawing(cue, ov, pts)),
+      mkBtn(t("done"), false, () => this.exitDraw()),
+    );
+    ov.append(canvas, bar, el("div", "se-poshint", t("drawHint")));
+    this.rightEl.appendChild(ov);
+    this.drawOverlay = ov;
+    document.addEventListener("keydown", this.onDrawKey, true);
+    this.renderDetail();
+  }
+
+  private applyDrawing(cue: Cue, ov: HTMLElement, ptsLocal: { x: number; y: number }[]): void {
+    if (ptsLocal.length < 2) return;
+    const r = ov.getBoundingClientRect();
+    const pts = ptsLocal.map((p) => this.clientToPlayRes(p.x + r.left, p.y + r.top)).filter((p): p is { px: number; py: number } => !!p);
+    if (pts.length < 2) return;
+    // Absolute drawing: \an7\pos(0,0) puts the drawing origin at the screen origin, so the
+    // PlayRes point coords map directly onto the picture.
+    const cmds = `m ${pts[0].px} ${pts[0].py} ` + pts.slice(1).map((p) => `l ${p.px} ${p.py}`).join(" ");
+    cue.text = `{\\an7\\pos(0,0)\\p1}${cmds}{\\p0}`;
+    if (this.detailTextarea) this.detailTextarea.value = cue.text;
+    this.refreshRow(cue.id);
+    this.markDirty();
+    this.exitDraw();
+  }
+
+  private onDrawKey = (e: KeyboardEvent): void => {
+    if (e.key === "Escape" && this.drawOverlay) {
+      e.preventDefault();
+      this.exitDraw();
+    }
+  };
+
+  private exitDraw(): void {
+    document.removeEventListener("keydown", this.onDrawKey, true);
+    this.drawOverlay?.remove();
+    this.drawOverlay = null;
+    this.renderDetail();
   }
 
   // --- fade ----------------------------------------------------------------
@@ -1263,6 +1394,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.timeline?.stopPlayheadLoop();
     if (this.posOverlay) this.exitPosition();
     if (this.clipOverlay) this.exitClip();
+    if (this.drawOverlay) this.exitDraw();
     this.rightEl.textContent = "";
     const host = el("div", "se-playerhost") as HTMLDivElement;
     this.rightEl.appendChild(host);
@@ -1441,6 +1573,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     window.clearTimeout(this.subtitleTimer);
     document.removeEventListener("keydown", this.onPosKey, true);
     document.removeEventListener("keydown", this.onClipKey, true);
+    document.removeEventListener("keydown", this.onDrawKey, true);
     this.waveAbort?.abort();
     this.video?.removeEventListener("timeupdate", this.onTimeUpdate);
     this.timeline?.destroy();
