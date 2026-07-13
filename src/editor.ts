@@ -24,7 +24,7 @@ import { openStyleEditor, openScriptProperties } from "./styles-editor";
 import { openKaraoke } from "./karaoke";
 import { setLocale, t, alignmentOptions } from "./i18n";
 import { Timeline } from "./waveform";
-import { createMediaPlayer, extractWaveformPeaks, type MediaPlayerHandle } from "mediaplay";
+import { createMediaPlayer, extractWaveformPeaks, extractMkvSubtitles, type MediaPlayerHandle, type MkvSubtitleTrack } from "mediaplay";
 
 export interface SubtitleInput {
   text: string;
@@ -1982,6 +1982,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.rightEl.appendChild(host);
     const bytes = new Uint8Array(await file.arrayBuffer());
     this.mediaBytes = bytes;
+    this.loadEmbeddedTracks(bytes); // before the player, so subs load even if it can't decode the media
     this.player = createMediaPlayer(host, { bytes, mime: file.type, filename: file.name }, { embedded: true });
     const v = this.player.getMediaElement() ?? null;
     this.video = v;
@@ -2000,6 +2001,32 @@ class SubtitleEditor implements SubtitleEditorHandle {
     }
     this.pushSubtitles();
     void this.extractWaveform(bytes);
+  }
+
+  // Read subtitle tracks embedded in the media container (MKV) and load each as an editable
+  // track. A lone empty placeholder track is replaced; otherwise they are appended. No-op
+  // for containers without embedded subtitles (or that aren't Matroska).
+  private loadEmbeddedTracks(bytes: Uint8Array): void {
+    let subs: MkvSubtitleTrack[] = [];
+    try {
+      subs = extractMkvSubtitles(bytes);
+    } catch {
+      return; // not an MKV, or unreadable
+    }
+    if (!subs.length) return;
+    const made: Track[] = subs.map((s, i) => {
+      const doc = s.assDoc ? parseSubtitles(s.assDoc, "embedded.ass") : parseSubtitles(s.vtt ?? "", "embedded.vtt");
+      const lang = s.language && s.language !== "und" ? s.language : "";
+      const label = (s.label || lang || `${t("track")} ${i + 1}`).trim();
+      return { id: newTrackId(), label, language: lang, doc };
+    });
+    const placeholder = this.tracks.length === 1 && this.tracks[0].doc.cues.length === 0;
+    if (placeholder) this.tracks = made;
+    else this.tracks.push(...made);
+    this.activeTrackId = made[0].id;
+    this.refreshForActiveDoc();
+    this.renderTrackBar();
+    this.toast(t("tracksLoaded", { n: made.length }));
   }
 
   // Decode the media's audio to a waveform via mediaplay, which handles every codec it can
