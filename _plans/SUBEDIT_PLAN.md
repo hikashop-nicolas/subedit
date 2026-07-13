@@ -386,12 +386,13 @@ translate mode (two-column original/translation).
 - **Phase 5, media-anchored multi-track** DONE (the core): track model +
   switcher; open video -> load embedded sub tracks (MKV + progressive/fragmented
   MP4) + audio; transcribe (Whisper) and translate (m2m100/NLLB) into new tracks;
-  mux-save with styled ASS-in-MKV via the mediabunny S_TEXT/ASS fork
-  (github:hikashop-nicolas/mediabunny, branch subedit-s_text-ass; interim
-  file:../mediabunny). Remaining follow-ups: publish + pin the fork; fix
-  mediabunny's MP4+WebVTT finalize assert to enable MP4 subtitle output; stream
-  mux to disk (showSaveFilePicker + StreamTarget) for multi-GB files instead of
-  BufferTarget; live translation generation tuning.
+  mux-save: styled ASS-in-MKV + WebVTT-in-MP4, saving back into the source
+  container, streamed to disk. Uses the mediabunny fork
+  github:hikashop-nicolas/mediabunny#subedit-s_text-ass (pinned), which adds
+  S_TEXT/ASS to the Matroska muxer AND fixes the ISOBMFF subtitle finalize
+  assert. Save streams via StreamTarget + showSaveFilePicker (blob-download
+  fallback). Remaining refinement: translation generation tuning (m2m100 over-
+  generates on very short inputs).
 - **Phase 6, Omnitext**: subtitle.impl.ts, format registration, preferred
   editor wiring, git dep pin, ship to Pages + APK.
 - **Later / out of scope for now**: Web Speech / cloud ASR backends (MP4 subtitle
