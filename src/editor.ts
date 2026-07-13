@@ -93,6 +93,8 @@ function injectStyles(): void {
 .se-left{flex:1 1 55%;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--se-border);}
 .se-right{flex:1 1 45%;display:flex;flex-direction:column;min-width:0;background:#000;position:relative;}
 .se-listhead,.se-row{display:grid;grid-template-columns:44px 96px 96px 52px 44px 1fr;align-items:center;gap:6px;padding:0 8px;}
+.se-ass .se-listhead,.se-ass .se-row{grid-template-columns:44px 96px 96px 52px 44px 110px 1fr;}
+.se-actor{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--se-muted);}
 .se-listhead{height:28px;border-bottom:1px solid var(--se-border);color:var(--se-muted);font-size:11px;text-transform:uppercase;letter-spacing:.03em;background:var(--se-head);flex:0 0 auto;}
 .se-scroll{flex:1 1 auto;overflow-y:auto;position:relative;}
 .se-inner{position:relative;width:100%;}
@@ -112,7 +114,14 @@ function injectStyles(): void {
 .se-times{display:flex;gap:8px;flex-wrap:wrap;}
 .se-field{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--se-muted);}
 .se-field input{font:inherit;font-variant-numeric:tabular-nums;padding:3px 6px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);width:110px;}
+.se-assbox{display:flex;flex-direction:column;gap:6px;}
 .se-assextras{flex-wrap:wrap;}
+.se-margins{flex-wrap:wrap;align-items:center;}
+.se-grouplabel{font-size:10px;color:var(--se-muted);text-transform:uppercase;letter-spacing:.03em;align-self:center;}
+.se-effectgroup{gap:3px;}
+.se-effectrow{display:flex;gap:6px;align-items:flex-end;}
+.se-effectparams{display:flex;gap:6px;align-items:flex-end;}
+.se-effectgroup select{font:inherit;padding:3px 6px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);}
 .se-numfield input{width:56px;}
 .se-actorfield input,.se-effectfield input{width:100px;}
 .se-checkfield{flex-direction:row;align-items:center;gap:5px;}
@@ -163,6 +172,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private countEl!: HTMLSpanElement;
   private stylesBtn!: HTMLButtonElement;
   private scriptBtn!: HTMLButtonElement;
+  private leftEl!: HTMLDivElement;
+  private headEl!: HTMLDivElement;
   private rightEl!: HTMLDivElement;
   private player: MediaPlayerHandle | null = null;
   private video: HTMLMediaElement | null = null;
@@ -246,20 +257,13 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
   private buildBody(): void {
     const body = el("div", "se-body");
-    const left = el("div", "se-left");
+    const left = el("div", "se-left") as HTMLDivElement;
+    this.leftEl = left;
+    left.classList.toggle("se-ass", this.doc.format === "ass");
 
-    const head = el("div", "se-listhead");
-    for (const [cls, key] of [
-      ["se-num", "colIndex"],
-      ["", "colStart"],
-      ["", "colEnd"],
-      ["", "colDuration"],
-      ["", "colCps"],
-      ["", "colText"],
-    ] as const) {
-      head.appendChild(el("div", cls, t(key)));
-    }
-    left.appendChild(head);
+    this.headEl = el("div", "se-listhead") as HTMLDivElement;
+    left.appendChild(this.headEl);
+    this.renderListHead();
 
     this.scrollEl = el("div", "se-scroll") as HTMLDivElement;
     this.innerEl = el("div", "se-inner") as HTMLDivElement;
@@ -366,6 +370,18 @@ class SubtitleEditor implements SubtitleEditorHandle {
     }
   }
 
+  // Build the list header, adding an Actor column for ASS.
+  private renderListHead(): void {
+    this.headEl.textContent = "";
+    this.headEl.appendChild(el("div", "se-num", t("colIndex")));
+    this.headEl.appendChild(el("div", "", t("colStart")));
+    this.headEl.appendChild(el("div", "", t("colEnd")));
+    this.headEl.appendChild(el("div", "", t("colDuration")));
+    this.headEl.appendChild(el("div", "", t("colCps")));
+    if (this.doc.format === "ass") this.headEl.appendChild(el("div", "", t("actor")));
+    this.headEl.appendChild(el("div", "", t("colText")));
+  }
+
   private makeRow(cue: Cue): HTMLDivElement {
     const row = el("div", "se-row") as HTMLDivElement;
     row.dataset.id = cue.id;
@@ -374,6 +390,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     row.appendChild(el("div", "se-cell se-time se-end"));
     row.appendChild(el("div", "se-cell se-time se-dur"));
     row.appendChild(el("div", "se-cell se-cps"));
+    if (this.doc.format === "ass") row.appendChild(el("div", "se-cell se-actor"));
     row.appendChild(el("div", "se-cell se-text"));
     row.addEventListener("click", () => this.select(cue.id));
     row.addEventListener("dblclick", () => this.seekTo(cue.startMs, true));
@@ -382,15 +399,18 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
   private fillRow(row: HTMLDivElement, cue: Cue, index: number): void {
     const sep = this.doc.format === "srt" ? "," : ".";
-    (row.children[0] as HTMLElement).textContent = String(index + 1);
-    (row.children[1] as HTMLElement).textContent = formatTimestamp(cue.startMs, sep);
-    (row.children[2] as HTMLElement).textContent = formatTimestamp(cue.endMs, sep);
-    (row.children[3] as HTMLElement).textContent = ((cue.endMs - cue.startMs) / 1000).toFixed(1);
+    const cell = (c: string) => row.querySelector<HTMLElement>(`.${c}`)!;
+    cell("se-num").textContent = String(index + 1);
+    cell("se-start").textContent = formatTimestamp(cue.startMs, sep);
+    cell("se-end").textContent = formatTimestamp(cue.endMs, sep);
+    cell("se-dur").textContent = ((cue.endMs - cue.startMs) / 1000).toFixed(1);
     const c = cps(cue);
-    const cpsCell = row.children[4] as HTMLElement;
+    const cpsCell = cell("se-cps");
     cpsCell.textContent = c ? c.toFixed(0) : "";
     cpsCell.className = "se-cell se-cps" + (c > CPS_BAD ? " bad" : c > CPS_WARN ? " warn" : "");
-    (row.children[5] as HTMLElement).textContent = cue.text.replace(/\n/g, " ⏎ ");
+    const actorCell = row.querySelector<HTMLElement>(".se-actor");
+    if (actorCell) actorCell.textContent = cue.assFields?.Name ?? "";
+    cell("se-text").textContent = cue.text.replace(/\n/g, " ⏎ ");
     row.classList.toggle("sel", cue.id === this.selectedId);
     row.classList.toggle("playing", cue.id === this.playingId);
     row.classList.toggle("commented", cue.assKind === "Comment");
@@ -541,27 +561,27 @@ class SubtitleEditor implements SubtitleEditorHandle {
     tr.addEventListener("click", () => this.openTransform(cue, ta));
     bar.appendChild(tr);
 
-    // Alignment: set/replace a leading {\anN} on the line.
+    // Alignment: the cue's inline \anN override. "No alignment" removes it (the line
+    // then uses its style's alignment). Reflects the current override.
     const align = document.createElement("select");
     align.className = "se-inalign";
     align.title = t("styleAlign");
-    const opt0 = document.createElement("option");
-    opt0.value = "";
-    opt0.textContent = t("styleAlign");
-    align.appendChild(opt0);
+    const optNone = document.createElement("option");
+    optNone.value = "none";
+    optNone.textContent = t("noAlign");
+    align.appendChild(optNone);
     for (const { value, label } of alignmentOptions()) {
       const o = document.createElement("option");
       o.value = value;
       o.textContent = label;
       align.appendChild(o);
     }
+    align.value = cue.text.match(/\\an([1-9])/)?.[1] ?? "none";
     align.addEventListener("change", () => {
-      if (!align.value) return;
-      const stripped = cue.text.replace(/^\{\\an[1-9]\}/, "");
-      ta.value = `{\\an${align.value}}` + stripped;
+      const stripped = cue.text.replace(/\{\\an[1-9]\}/g, "").replace(/\\an[1-9]/g, "").replace(/\{\}/g, "");
+      ta.value = align.value === "none" ? stripped : `{\\an${align.value}}` + stripped;
       this.updateCue(cue.id, { text: ta.value }, true);
-      align.value = "";
-      ta.focus();
+      if (this.doc.format === "ass") this.renderDetail(); // margin V visibility depends on this
     });
     bar.appendChild(align);
 
@@ -821,8 +841,10 @@ class SubtitleEditor implements SubtitleEditorHandle {
     return wrap;
   }
 
-  // A compact row of the remaining ASS Event fields for the selected cue.
+  // The remaining ASS Event fields for the selected cue, grouped into a fields row
+  // (disable / actor / layer / effect) and a margins row.
   private assExtrasRow(cue: Cue): HTMLElement {
+    const box = el("div", "se-assbox");
     const row = el("div", "se-times se-assextras");
 
     const cwrap = el("label", "se-field se-checkfield", t("disabled"));
@@ -836,17 +858,92 @@ class SubtitleEditor implements SubtitleEditorHandle {
       this.markDirty();
     });
     cwrap.appendChild(cb);
-    row.appendChild(cwrap);
+    row.append(cwrap, this.assField(cue, "Name", t("actor"), "text", "se-actorfield"), this.assField(cue, "Layer", t("layer"), "number", "se-numfield"), this.assEffectField(cue));
+    box.appendChild(row);
 
-    row.appendChild(this.assField(cue, "Name", t("actor"), "text", "se-actorfield"));
-    row.appendChild(
-      this.assField(cue, "Effect", t("effect"), "text", "se-effectfield", ["", "Banner;40", "Scroll up;0;0;40", "Scroll down;0;0;40", "Karaoke"]),
-    );
-    row.appendChild(this.assField(cue, "Layer", t("layer"), "number", "se-numfield"));
-    row.appendChild(this.assField(cue, "MarginL", t("marginL"), "number", "se-numfield"));
-    row.appendChild(this.assField(cue, "MarginR", t("marginR"), "number", "se-numfield"));
-    row.appendChild(this.assField(cue, "MarginV", t("marginV"), "number", "se-numfield"));
-    return row;
+    // Margins group: Left / Right, and Vertical only when the line is top/bottom aligned.
+    const margins = el("div", "se-times se-margins");
+    margins.appendChild(el("span", "se-grouplabel", t("marginsLabel")));
+    margins.append(this.assField(cue, "MarginL", t("marginL"), "number", "se-numfield"), this.assField(cue, "MarginR", t("marginR"), "number", "se-numfield"));
+    if (![4, 5, 6].includes(this.effectiveAlign(cue))) margins.appendChild(this.assField(cue, "MarginV", t("marginV"), "number", "se-numfield"));
+    box.appendChild(margins);
+    return box;
+  }
+
+  // The cue's alignment: an inline \an override, else the assigned style's, else 2.
+  private effectiveAlign(cue: Cue): number {
+    const an = cue.text.match(/\\an([1-9])/);
+    if (an) return parseInt(an[1], 10);
+    const style = this.doc.styles?.find((s) => s.name === (cue.assFields?.Style ?? "Default"));
+    return parseInt(style?.fields.Alignment ?? "2", 10) || 2;
+  }
+
+  // Effect: a type dropdown (None / Banner / Scroll up / Scroll down; Karaoke only if the
+  // cue already uses it) plus parameter fields for the chosen effect.
+  private assEffectField(cue: Cue): HTMLElement {
+    const PREFIX: Record<string, string> = { banner: "Banner", scrollup: "Scroll up", scrolldown: "Scroll down", karaoke: "Karaoke" };
+    const SPECS: Record<string, { label: string; def: string; check?: boolean }[]> = {
+      banner: [{ label: t("effDelay"), def: "40" }, { label: t("effLtr"), def: "0", check: true }, { label: t("effFade"), def: "0" }],
+      scrollup: [{ label: t("effY1"), def: "0" }, { label: t("effY2"), def: "0" }, { label: t("effDelay"), def: "40" }, { label: t("effFade"), def: "0" }],
+      scrolldown: [{ label: t("effY1"), def: "0" }, { label: t("effY2"), def: "0" }, { label: t("effDelay"), def: "40" }, { label: t("effFade"), def: "0" }],
+    };
+    const cur = cue.assFields?.Effect ?? "";
+    const type = /^banner/i.test(cur) ? "banner" : /^scroll up/i.test(cur) ? "scrollup" : /^scroll down/i.test(cur) ? "scrolldown" : /^karaoke/i.test(cur) ? "karaoke" : "none";
+
+    const group = el("div", "se-field se-effectgroup");
+    group.append(el("span", "", t("effect")));
+    const rowEl = el("div", "se-effectrow");
+    const sel = document.createElement("select");
+    const opts: [string, string][] = [["none", t("effectNone")], ["banner", "Banner"], ["scrollup", t("scrollUp")], ["scrolldown", t("scrollDown")]];
+    if (type === "karaoke") opts.push(["karaoke", "Karaoke"]);
+    for (const [v, l] of opts) {
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = l;
+      sel.appendChild(o);
+    }
+    sel.value = type;
+    const params = el("div", "se-effectparams");
+    rowEl.append(sel, params);
+    group.appendChild(rowEl);
+
+    const setEffect = (val: string) => {
+      (cue.assFields ??= {}).Effect = val;
+      this.refreshRow(cue.id);
+      this.markDirty();
+    };
+    const build = (t2: string, parts: string[], commit: boolean): void => {
+      params.textContent = "";
+      if (t2 === "none") {
+        if (commit) setEffect("");
+        return;
+      }
+      if (t2 === "karaoke") {
+        if (commit) setEffect("Karaoke");
+        return;
+      }
+      const spec = SPECS[t2];
+      const inputs = spec.map((s, i) => {
+        const wrap = el("label", "se-field " + (s.check ? "se-checkfield" : "se-numfield"), s.label);
+        const input = document.createElement("input");
+        if (s.check) {
+          input.type = "checkbox";
+          input.checked = (parts[i] ?? s.def) !== "0" && (parts[i] ?? s.def) !== "";
+        } else {
+          input.type = "number";
+          input.value = parts[i] ?? s.def;
+        }
+        wrap.appendChild(input);
+        params.appendChild(wrap);
+        return { input, check: s.check };
+      });
+      const rebuild = () => setEffect(`${PREFIX[t2]};${inputs.map((x) => (x.check ? (x.input.checked ? "1" : "0") : x.input.value || "0")).join(";")}`);
+      inputs.forEach((x) => x.input.addEventListener("change", rebuild));
+      if (commit) rebuild();
+    };
+    sel.addEventListener("change", () => build(sel.value, [], true));
+    build(type, cur.split(";").slice(1), false);
+    return group;
   }
 
   private assField(cue: Cue, key: string, label: string, type: "text" | "number", cls: string, datalist?: string[]): HTMLElement {
@@ -989,6 +1086,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.doc = convertDoc(this.doc, target);
     this.stylesBtn.style.display = target === "ass" ? "" : "none";
     this.scriptBtn.style.display = target === "ass" ? "" : "none";
+    this.leftEl.classList.toggle("se-ass", target === "ass");
+    this.renderListHead();
     this.rows.clear();
     this.innerEl.textContent = "";
     this.renderList();
