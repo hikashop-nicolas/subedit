@@ -59,7 +59,10 @@ ctx.onmessage = async (e: MessageEvent) => {
     const BATCH = 12;
     for (let i = 0; i < msg.texts.length; i += BATCH) {
       const batch = msg.texts.slice(i, i + BATCH);
-      const out = await translate(batch, { src_lang: msg.srcLang, tgt_lang: msg.tgtLang });
+      // repetition_penalty curbs m2m100's habit of re-translating short inputs into other
+      // languages (e.g. "Bonjour le monde Hej"); no_repeat_ngram_size guards verbatim loops.
+      // Both are harmless on normal-length lines.
+      const out = await translate(batch, { src_lang: msg.srcLang, tgt_lang: msg.tgtLang, repetition_penalty: 1.3, no_repeat_ngram_size: 3 });
       const arr = Array.isArray(out) ? out : [out];
       results.push(...arr.map((o) => o.translation_text));
       ctx.postMessage({ type: "progress", stage: "translate", ratio: Math.min(1, (i + batch.length) / msg.texts.length) });
