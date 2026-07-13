@@ -23,7 +23,9 @@ export type MuxContainer = "mkv" | "mp4";
 export interface MuxSubtitle {
   name: string;
   language: string; // 2-letter code or ""
-  vtt: string; // a WebVTT document
+  // "ass" writes a styled S_TEXT/ASS track (MKV only); "vtt" writes a WebVTT track.
+  kind: "ass" | "vtt";
+  content: string; // the ASS document or the WebVTT document
 }
 
 // 2-letter -> ISO 639-2/T for mediabunny's track metadata.
@@ -53,9 +55,11 @@ export async function muxIntoContainer(mediaBytes: Uint8Array, subs: MuxSubtitle
   }
 
   const subSrcs = subs.map((s) => {
-    const src = new TextSubtitleSource("webvtt");
+    // "ass" -> styled S_TEXT/ASS (MKV only; mediabunny rejects it for containers that can't
+    // hold it). The caller passes "vtt" when styling isn't wanted or supported.
+    const src = new TextSubtitleSource(s.kind === "ass" ? "ass" : "webvtt");
     output.addSubtitleTrack(src, { languageCode: LANG2TO3[s.language], name: s.name || undefined });
-    return { src, vtt: s.vtt };
+    return { src, content: s.content };
   });
 
   await output.start();
@@ -68,7 +72,7 @@ export async function muxIntoContainer(mediaBytes: Uint8Array, subs: MuxSubtitle
       p = await c.sink.getNextPacket(p);
     }
   }
-  for (const ss of subSrcs) await ss.src.add(ss.vtt);
+  for (const ss of subSrcs) await ss.src.add(ss.content);
   await output.finalize();
   return new Uint8Array((output.target as BufferTarget).buffer as ArrayBuffer);
 }

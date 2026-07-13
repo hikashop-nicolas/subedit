@@ -1867,7 +1867,12 @@ class SubtitleEditor implements SubtitleEditorHandle {
       return;
     }
     const bytes = this.mediaBytes;
-    const subs = this.tracks.map((tr) => ({ name: tr.label, language: tr.language, vtt: serializeSubtitles(convertDoc(tr.doc, "vtt")) }));
+    // MKV keeps ASS tracks styled (S_TEXT/ASS); other formats go out as WebVTT.
+    const subs = this.tracks.map((tr) =>
+      tr.doc.format === "ass"
+        ? { name: tr.label, language: tr.language, kind: "ass" as const, content: serializeSubtitles(tr.doc) }
+        : { name: tr.label, language: tr.language, kind: "vtt" as const, content: serializeSubtitles(convertDoc(tr.doc, "vtt")) },
+    );
     this.toast(t("savingVideo"));
     void import("./mux").then(async ({ muxIntoContainer }) => {
       try {
