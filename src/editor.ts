@@ -297,6 +297,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private player: MediaPlayerHandle | null = null;
   private video: HTMLMediaElement | null = null;
   private mediaBytes: Uint8Array | null = null; // retained for auto-transcription
+  private mediaFile: File | null = null; // the original file, streamed on save (no in-memory copy)
   private timeline: Timeline | null = null;
   private waveAbort: AbortController | null = null;
   private waveStatusEl: HTMLDivElement | null = null;
@@ -1951,13 +1952,17 @@ class SubtitleEditor implements SubtitleEditorHandle {
       lastTick = now;
       this.countEl.textContent = `${t("savingVideo")} ${(written / 1e6).toFixed(1)} MB`;
     };
+    // Stream from the original File (disk-backed, no in-memory copy) when we have it; fall back
+    // to the retained bytes otherwise. Copying a multi-GB Uint8Array into a Blob can blow the
+    // ArrayBuffer allocation limit ("Array buffer allocation failed").
+    const media = this.mediaFile ?? bytes;
     try {
       const { muxIntoContainer, muxToFile } = await import("./mux");
       if (handle) {
         const writable = await (handle as unknown as { createWritable(): Promise<import("./mux").FileWritable> }).createWritable();
-        await muxToFile(bytes, subs, container, writable, onBytes);
+        await muxToFile(media, subs, container, writable, onBytes);
       } else {
-        const out = await muxIntoContainer(bytes, subs, container);
+        const out = await muxIntoContainer(media, subs, container);
         const mime = container === "mkv" ? "video/x-matroska" : "video/mp4";
         const url = URL.createObjectURL(new Blob([out as BlobPart], { type: mime }));
         const a = document.createElement("a");
@@ -2332,6 +2337,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.rightEl.appendChild(host);
     const bytes = new Uint8Array(await file.arrayBuffer());
     this.mediaBytes = bytes;
+    this.mediaFile = file;
     this.loadEmbeddedTracks(bytes); // before the player, so subs load even if it can't decode the media
     this.player = createMediaPlayer(host, { bytes, mime: file.type, filename: file.name }, { embedded: true });
     const v = this.player.getMediaElement() ?? null;
