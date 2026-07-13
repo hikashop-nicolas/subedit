@@ -78,7 +78,8 @@ onMessage(async (e: MessageEvent) => {
     // sized to the input keeps the real translation and cuts the ramble. That means going
     // one line at a time (the cap must match each line), which on CPU is no slower than beam
     // search over a batch. no_repeat_ngram_size guards short verbatim loops within the cap.
-    const tokenizer = (translate as unknown as { tokenizer?: (t: string) => { input_ids?: { size?: number; dims?: number[] } } }).tokenizer;
+    const tokenizerOf = (fn: Translator) => (fn as unknown as { tokenizer?: (t: string) => { input_ids?: { size?: number; dims?: number[] } } }).tokenizer;
+    let tokenizer = tokenizerOf(translate);
     const capFor = (text: string): number => {
       let n = Math.ceil(text.length / 3) + 4; // char-based fallback
       try {
@@ -90,14 +91,44 @@ onMessage(async (e: MessageEvent) => {
       }
       return Math.min(220, Math.max(24, Math.round(n * 1.6) + 8));
     };
-    for (let i = 0; i < run.texts.length; i += 1) {
+    // WebGPU can drop the device mid-run on long jobs (context reset / device loss:
+    // "a valid external Instance reference no longer exists"). A loss is often transient, so
+    // rebuild the GPU pipeline and retry the same line a few times (with a short backoff to let
+    // the driver recover) before giving up and finishing on CPU. Losing the remainder of the
+    // job is the last resort, never the first.
+    const MAX_GPU_RETRIES = 3;
+    let gpuRetries = 0;
+    for (let i = 0; i < run.texts.length; ) {
       await waitWhilePaused();
       if (stopped) break;
-      const out = await translate([run.texts[i]], { src_lang: run.srcLang, tgt_lang: run.tgtLang, max_new_tokens: capFor(run.texts[i]), no_repeat_ngram_size: 3 });
-      const arr = Array.isArray(out) ? out : [out];
-      // Stream each line as it lands so the main thread can fill the track live.
-      post({ type: "partial", start: i, texts: [arr[0].translation_text] });
-      post({ type: "progress", stage: "translate", ratio: (i + 1) / run.texts.length });
+      try {
+        const out = await translate([run.texts[i]], { src_lang: run.srcLang, tgt_lang: run.tgtLang, max_new_tokens: capFor(run.texts[i]), no_repeat_ngram_size: 3 });
+        const arr = Array.isArray(out) ? out : [out];
+        // Stream each line as it lands so the main thread can fill the track live.
+        post({ type: "partial", start: i, texts: [arr[0].translation_text] });
+        post({ type: "progress", stage: "translate", ratio: (i + 1) / run.texts.length });
+        i += 1;
+        gpuRetries = 0; // a clean line resets the consecutive-failure count
+      } catch (runErr) {
+        if (device !== "webgpu") throw runErr;
+        if (gpuRetries < MAX_GPU_RETRIES) {
+          gpuRetries += 1;
+          try {
+            await new Promise((r) => setTimeout(r, 800));
+            cached = null;
+            translate = await getTranslator(run.model, "webgpu", run.dtype);
+            tokenizer = tokenizerOf(translate);
+            continue; // retry the same line on the GPU
+          } catch {
+            /* GPU won't come back; fall through to CPU below */
+          }
+        }
+        device = "wasm";
+        cached = null;
+        translate = await getTranslator(run.model, device, run.dtype);
+        tokenizer = tokenizerOf(translate);
+        post({ type: "device", device });
+      }
     }
     post({ type: "done", stopped });
   } catch (err) {

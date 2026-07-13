@@ -47,13 +47,34 @@ onMessage(async (e: MessageEvent) => {
       transcribe = await getTranscriber(msg.model, device, msg.dtype);
     }
     post({ type: "device", device });
-    const out = await transcribe(msg.audio, {
+    const opts = {
       chunk_length_s: 30,
       stride_length_s: 5,
       return_timestamps: msg.timestamps === "sentence" ? true : "word",
       language: msg.language || null,
       task: msg.task ?? "transcribe",
-    });
+    };
+    let out;
+    try {
+      out = await transcribe(msg.audio, opts);
+    } catch (runErr) {
+      // WebGPU can drop the device mid-run (context reset / device loss). A loss is often
+      // transient, so rebuild the GPU pipeline and retry once (transcription is one long call,
+      // so a redo is costly - one GPU retry, then finish on CPU rather than fail).
+      if (device !== "webgpu") throw runErr;
+      try {
+        await new Promise((r) => setTimeout(r, 800));
+        cached = null;
+        transcribe = await getTranscriber(msg.model, "webgpu", msg.dtype);
+        out = await transcribe(msg.audio, opts);
+      } catch {
+        device = "wasm";
+        cached = null;
+        transcribe = await getTranscriber(msg.model, device, msg.dtype);
+        post({ type: "device", device });
+        out = await transcribe(msg.audio, opts);
+      }
+    }
     const chunks: { text: string; timestamp: [number | null, number | null] }[] = out?.chunks ?? [];
     const words = chunks
       .filter((c) => c.timestamp?.[0] != null && c.timestamp?.[1] != null)
