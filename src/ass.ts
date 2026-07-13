@@ -206,6 +206,18 @@ export function styleNames(doc: SubtitleDoc): string[] {
   return (doc.styles ?? []).map((s) => s.name);
 }
 
+// Family names of fonts embedded in the file's [Fonts] section, read from the
+// "fontname: Family_B<enc>.ttf" declaration lines (the _<digits> suffix and extension
+// are stripped). The font binaries themselves are not decoded.
+export function embeddedFontNames(doc: SubtitleDoc): string[] {
+  const raw = `${doc.assScriptInfo ?? ""}\n${doc.assStylesTail ?? ""}\n${doc.trailingNotes ?? ""}`;
+  const names = new Set<string>();
+  for (const m of raw.matchAll(/^fontname:\s*(.+?)(?:_\d+)?\.(?:ttf|otf|ttc)\s*$/gim)) {
+    if (m[1].trim()) names.add(m[1].trim());
+  }
+  return [...names];
+}
+
 // The script resolution (\pos and drawings are in these coordinates). ASS defaults to
 // 384x288 when unset.
 export function getPlayRes(doc: SubtitleDoc): { x: number; y: number } {

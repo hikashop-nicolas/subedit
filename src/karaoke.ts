@@ -42,6 +42,8 @@ function injectCss(): void {
 .se-kar-head,.se-kar-foot{display:flex;gap:8px;align-items:center;padding:10px 14px;}
 .se-kar-head{border-bottom:1px solid var(--se-border,#33353b);} .se-kar-foot{border-top:1px solid var(--se-border,#33353b);}
 .se-kar-head h3{margin:0;font-size:14px;flex:1 1 auto;}
+.se-kar-sec{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--se-muted,#9aa0aa);}
+.se-kar-sec input{width:32px;height:24px;padding:0;border:1px solid var(--se-border,#33353b);border-radius:5px;background:none;cursor:pointer;}
 .se-kar canvas{display:block;width:100%;height:120px;touch-action:none;cursor:default;}
 .se-kar-list{overflow:auto;padding:6px 14px;display:flex;flex-direction:column;gap:5px;max-height:34vh;}
 .se-kar-row{display:flex;gap:8px;align-items:center;}
@@ -62,13 +64,24 @@ function injectCss(): void {
 const H = 120;
 const EDGE = 6;
 
-export function openKaraoke(cue: Cue, video: HTMLMediaElement | null, peaks: { peaks: Float32Array; peaksPerSec: number } | null, onApply: (text: string) => void): void {
+export function openKaraoke(cue: Cue, video: HTMLMediaElement | null, peaks: { peaks: Float32Array; peaksPerSec: number } | null, defaultSecondaryHex: string, onApply: (text: string) => void): void {
   injectCss();
   const startMs = cue.startMs;
   const durMs = Math.max(1, cue.endMs - cue.startMs);
   const durCs = Math.round(durMs / 10);
   const parsed = parseSegments(cue.text);
   const lead = parsed.lead;
+  // Secondary (\2c) colour: the not-yet-sung colour the \kf sweep starts from.
+  const hexToInline = (hex: string): string => {
+    const h = (hex.match(/[0-9a-fA-F]{6}/)?.[0] ?? "ffffff");
+    return `&H${(h.slice(4, 6) + h.slice(2, 4) + h.slice(0, 2)).toUpperCase()}&`;
+  };
+  let secondaryHex = lead.match(/\\2c&H([0-9A-Fa-f]{6})&/)
+    ? (() => {
+        const h = lead.match(/\\2c&H([0-9A-Fa-f]{6})&/)![1];
+        return `#${h.slice(4, 6)}${h.slice(2, 4)}${h.slice(0, 2)}`.toLowerCase();
+      })()
+    : defaultSecondaryHex;
   let segs = parsed.segs;
   if (!segs.length) segs = [{ type: "syl", text: cue.text || " ", cs: durCs }];
   if (segs.every((s) => s.cs === 0)) distribute();
@@ -84,13 +97,21 @@ export function openKaraoke(cue: Cue, video: HTMLMediaElement | null, peaks: { p
   head.className = "se-kar-head";
   const h3 = document.createElement("h3");
   h3.textContent = t("karaoke");
+  const secLabel = document.createElement("label");
+  secLabel.className = "se-kar-sec";
+  secLabel.title = t("secondaryColor");
+  const secInput = document.createElement("input");
+  secInput.type = "color";
+  secInput.value = secondaryHex;
+  secInput.addEventListener("input", () => (secondaryHex = secInput.value));
+  secLabel.append(t("secondaryColor"), secInput);
   const playBtn = document.createElement("button");
   playBtn.className = "act";
   playBtn.textContent = "▶ " + t("karaokePlay");
   const closeBtn = document.createElement("button");
   closeBtn.className = "act";
   closeBtn.textContent = t("close");
-  head.append(h3, playBtn, closeBtn);
+  head.append(h3, secLabel, playBtn, closeBtn);
 
   const canvas = document.createElement("canvas");
   const list = document.createElement("div");
@@ -441,7 +462,9 @@ export function openKaraoke(cue: Cue, video: HTMLMediaElement | null, peaks: { p
     if (e.target === back) close();
   });
   applyBtn.addEventListener("click", () => {
-    const out = lead + segs.map((s) => `{\\kf${s.cs}}${s.type === "blank" ? "" : s.text}`).join("");
+    let head2 = lead.replace(/\\2c&H[0-9A-Fa-f]+&/g, "").replace(/\{\}/g, "");
+    if (secondaryHex.toLowerCase() !== defaultSecondaryHex.toLowerCase()) head2 = `{\\2c${hexToInline(secondaryHex)}}` + head2;
+    const out = head2 + segs.map((s) => `{\\kf${s.cs}}${s.type === "blank" ? "" : s.text}`).join("");
     onApply(out);
     close();
   });

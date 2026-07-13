@@ -4,7 +4,7 @@
 // plus Duplicate and Delete. Fields it doesn't surface are preserved on the style object.
 
 import type { AssStyle, SubtitleDoc } from "./cue";
-import { assColorToHex, hexToAssColor, makeDefaultStyle, uniqueStyleName } from "./ass";
+import { assColorToHex, hexToAssColor, makeDefaultStyle, uniqueStyleName, embeddedFontNames } from "./ass";
 import { t, alignmentOptions } from "./i18n";
 
 export interface StylesEditorHost {
@@ -35,7 +35,14 @@ function injectStylesCss(): void {
   font:inherit;padding:5px 7px;border:1px solid var(--se-border,#33353b);border-radius:6px;
   background:var(--se-head,#25272c);color:var(--se-fg,#e6e7ea);width:100%;box-sizing:border-box;}
 .se-modal-body input[type=color]{width:40px;height:28px;padding:0;border:1px solid var(--se-border,#33353b);border-radius:6px;background:none;cursor:pointer;}
-.se-colours,.se-toggles{display:flex;gap:10px;flex:1 1 100%;flex-wrap:wrap;}
+.se-sgroup{flex:1 1 100%;border:1px solid var(--se-border,#33353b);border-radius:8px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;}
+.se-sglabel{flex:1 1 100%;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--se-muted,#9aa0aa);}
+.se-scgroup{display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--se-border,#33353b);border-radius:7px;}
+.se-scglabel{font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--se-muted,#9aa0aa);white-space:nowrap;}
+.se-scgroup .se-alpha{width:56px;}
+.se-scgroup .se-widthfield{width:52px;font:inherit;padding:4px 6px;border:1px solid var(--se-border,#33353b);border-radius:6px;background:var(--se-head,#25272c);color:var(--se-fg,#e6e7ea);}
+.se-scgroup select{width:auto;}
+.se-colours,.se-toggles{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;}
 .se-toggles button{font:600 13px system-ui;width:34px;height:30px;border:1px solid var(--se-border,#33353b);border-radius:6px;background:var(--se-head,#25272c);color:var(--se-fg,#e6e7ea);cursor:pointer;}
 .se-toggles button.on{background:var(--se-accent,#2563eb);border-color:var(--se-accent,#2563eb);color:#fff;}
 .se-toggles .se-t-i{font-style:italic;} .se-toggles .se-t-u{text-decoration:underline;} .se-toggles .se-t-s{text-decoration:line-through;}
@@ -119,19 +126,42 @@ export function openStyleEditor(host: StylesEditorHost, style: AssStyle): void {
     wrap.appendChild(input);
     return wrap;
   };
-  const colourField = (label: string, field: string): HTMLElement => {
-    const wrap = document.createElement("label");
-    wrap.textContent = label;
-    const { hex, alpha } = assColorToHex(style.fields[field] ?? "&H00FFFFFF");
-    const input = document.createElement("input");
-    input.type = "color";
-    input.value = hex;
-    input.addEventListener("input", () => {
-      style.fields[field] = hexToAssColor(input.value, alpha);
+  // A colour with its opacity slider, plus any extras (width field, border-style select),
+  // boxed under one label. Colour + alpha both write the field as &HAABBGGRR.
+  const colourBox = (label: string, field: string, ...extras: HTMLElement[]): HTMLElement => {
+    const box = document.createElement("div");
+    box.className = "se-scgroup";
+    const lbl = document.createElement("span");
+    lbl.className = "se-scglabel";
+    lbl.textContent = label;
+    box.appendChild(lbl);
+    let { hex, alpha } = assColorToHex(style.fields[field] ?? "&H00FFFFFF");
+    const write = () => {
+      style.fields[field] = hexToAssColor(hex, alpha);
       host.onChange();
+    };
+    const colour = document.createElement("input");
+    colour.type = "color";
+    colour.value = hex;
+    colour.title = label;
+    colour.addEventListener("input", () => {
+      hex = colour.value;
+      write();
     });
-    wrap.appendChild(input);
-    return wrap;
+    const opa = document.createElement("input");
+    opa.type = "range";
+    opa.className = "se-alpha";
+    opa.min = "0";
+    opa.max = "100";
+    opa.value = String(Math.round((1 - parseInt(alpha || "00", 16) / 255) * 100));
+    opa.title = `${t("opacity")} ${opa.value}%`;
+    opa.addEventListener("input", () => {
+      alpha = Math.round((1 - Number(opa.value) / 100) * 255).toString(16).padStart(2, "0").toUpperCase();
+      opa.title = `${t("opacity")} ${opa.value}%`;
+      write();
+    });
+    box.append(colour, opa, ...extras);
+    return box;
   };
   const toggleBtn = (label: string, field: string, cls: string): HTMLButtonElement => {
     const b = document.createElement("button");
@@ -153,8 +183,24 @@ export function openStyleEditor(host: StylesEditorHost, style: AssStyle): void {
   };
   setTitle();
 
+  // Labeled groups, mirroring the main interface's grouping.
+  const group = (title: string): HTMLElement => {
+    const g = document.createElement("div");
+    g.className = "se-sgroup";
+    const lab = document.createElement("span");
+    lab.className = "se-sglabel";
+    lab.textContent = title;
+    g.appendChild(lab);
+    body.appendChild(g);
+    return g;
+  };
+  const gGeneral = group(t("sgGeneral"));
+  const gColours = group(t("sgColours"));
+  const gTransform = group(t("sgTransform"));
+  const gMargins = group(t("sgMargins"));
+
   // Name.
-  body.appendChild(
+  gGeneral.appendChild(
     textField(t("styleName"), "se-f-name", style.name, (v) => {
       const from = style.name;
       const to = v.trim() || from;
@@ -180,6 +226,7 @@ export function openStyleEditor(host: StylesEditorHost, style: AssStyle): void {
   datalist.id = "se-fontlist";
   const fonts = new Set<string>();
   for (const s of doc.styles ?? []) if (s.fields.Fontname) fonts.add(s.fields.Fontname);
+  for (const f of embeddedFontNames(doc)) fonts.add(f);
   for (const f of ["Arial", "Helvetica", "Times New Roman", "Verdana", "Tahoma", "Trebuchet MS", "Georgia", "Courier New", "Comic Sans MS"]) fonts.add(f);
   for (const f of fonts) {
     const o = document.createElement("option");
@@ -187,8 +234,8 @@ export function openStyleEditor(host: StylesEditorHost, style: AssStyle): void {
     datalist.appendChild(o);
   }
   fontWrap.append(fontInput, datalist);
-  body.appendChild(fontWrap);
-  body.appendChild(
+  gGeneral.appendChild(fontWrap);
+  gGeneral.appendChild(
     numField(t("styleSize"), "se-f-size", style.fields.Fontsize ?? "", (v) => {
       style.fields.Fontsize = v;
       host.onChange();
@@ -206,81 +253,62 @@ export function openStyleEditor(host: StylesEditorHost, style: AssStyle): void {
     alignSel.appendChild(o);
   }
   alignSel.value = style.fields.Alignment ?? "2";
+  const updateMarginV = (): void => {
+    // MarginV is ignored for middle-row alignment (4/5/6): hide it there.
+    marginVWrap.style.display = ["4", "5", "6"].includes(alignSel.value) ? "none" : "";
+  };
   alignSel.addEventListener("change", () => {
     style.fields.Alignment = alignSel.value;
+    updateMarginV();
     host.onChange();
   });
   alignWrap.appendChild(alignSel);
-  body.appendChild(alignWrap);
+  gGeneral.appendChild(alignWrap);
 
-  // Colours.
-  const colours = document.createElement("div");
-  colours.className = "se-colours";
-  colours.append(
-    colourField(t("stylePrimary"), "PrimaryColour"),
-    colourField(t("styleSecondary"), "SecondaryColour"),
-    colourField(t("styleOutline"), "OutlineColour"),
-    colourField(t("styleBack"), "BackColour"),
-  );
-  body.appendChild(colours);
-
-  // Toggles.
-  const toggles = document.createElement("div");
-  toggles.className = "se-toggles";
-  toggles.append(
-    toggleBtn("B", "Bold", "se-t-b"),
-    toggleBtn("I", "Italic", "se-t-i"),
-    toggleBtn("U", "Underline", "se-t-u"),
-    toggleBtn("S", "StrikeOut", "se-t-s"),
-  );
-  body.appendChild(toggles);
-
-  // Outline / shadow.
-  body.appendChild(
-    numField(t("styleOutlineW"), "se-f-margin", style.fields.Outline ?? "", (v) => {
-      style.fields.Outline = v;
-      host.onChange();
-    }),
-  );
-  body.appendChild(
-    numField(t("styleShadow"), "se-f-margin", style.fields.Shadow ?? "", (v) => {
-      style.fields.Shadow = v;
-      host.onChange();
-    }),
-  );
-  // Margins.
-  for (const [label, field] of [
-    [t("marginL"), "MarginL"],
-    [t("marginR"), "MarginR"],
-    [t("marginV"), "MarginV"],
-  ] as const) {
-    body.appendChild(
-      numField(label, "se-f-margin", style.fields[field] ?? "", (v) => {
-        style.fields[field] = v;
-        host.onChange();
-      }),
-    );
+  // Encoding (font charset), as a dropdown of the common Windows charset IDs.
+  const encWrap = document.createElement("label");
+  encWrap.className = "se-f-align";
+  encWrap.textContent = t("styleEncoding");
+  const encSel = document.createElement("select");
+  // The Win32 LOGFONT charset IDs (fdwCharSet), same set VSFilter uses. Not a text
+  // encoding, so there is no UTF-8 here; the file text is UTF-8 independently.
+  const charsets: [string, string][] = [
+    ["1", "Default"],
+    ["0", "ANSI (Western European)"],
+    ["77", "Mac"],
+    ["128", "Japanese (Shift-JIS)"],
+    ["129", "Korean (Hangul)"],
+    ["130", "Korean (Johab)"],
+    ["134", "Simplified Chinese (GB2312)"],
+    ["136", "Traditional Chinese (Big5)"],
+    ["161", "Greek"],
+    ["162", "Turkish"],
+    ["163", "Vietnamese"],
+    ["177", "Hebrew"],
+    ["178", "Arabic"],
+    ["186", "Baltic"],
+    ["204", "Russian (Cyrillic)"],
+    ["222", "Thai"],
+    ["238", "Eastern European"],
+    ["255", "OEM"],
+  ];
+  const current = style.fields.Encoding ?? "1";
+  if (!charsets.some(([v]) => v === current)) charsets.push([current, current]); // keep an unknown value intact
+  for (const [v, lbl] of charsets) {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = v === lbl ? v : `${v} (${lbl})`;
+    encSel.appendChild(o);
   }
+  encSel.value = current;
+  encSel.addEventListener("change", () => {
+    style.fields.Encoding = encSel.value;
+    host.onChange();
+  });
+  encWrap.appendChild(encSel);
+  gGeneral.appendChild(encWrap);
 
-  // Scale / spacing / rotation, border style, encoding.
-  for (const [label, field] of [
-    [t("styleScaleX"), "ScaleX"],
-    [t("styleScaleY"), "ScaleY"],
-    [t("styleSpacing"), "Spacing"],
-    [t("styleAngle"), "Angle"],
-    [t("styleEncoding"), "Encoding"],
-  ] as const) {
-    body.appendChild(
-      numField(label, "se-f-margin", style.fields[field] ?? "", (v) => {
-        style.fields[field] = v;
-        host.onChange();
-      }),
-    );
-  }
-
-  const borderWrap = document.createElement("label");
-  borderWrap.className = "se-f-align";
-  borderWrap.textContent = t("styleBorder");
+  // Border-style selector (outline vs opaque box): a STYLE-level property (no inline tag).
   const borderSel = document.createElement("select");
   for (const [v, lbl] of [
     ["1", t("borderOutline")],
@@ -292,12 +320,76 @@ export function openStyleEditor(host: StylesEditorHost, style: AssStyle): void {
     borderSel.appendChild(o);
   }
   borderSel.value = style.fields.BorderStyle ?? "1";
+  borderSel.title = t("styleBorder");
   borderSel.addEventListener("change", () => {
     style.fields.BorderStyle = borderSel.value;
     host.onChange();
   });
-  borderWrap.appendChild(borderSel);
-  body.appendChild(borderWrap);
+  const widthField = (field: string): HTMLInputElement => {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.className = "se-widthfield";
+    input.min = "0";
+    input.step = "0.5";
+    input.title = t("width");
+    input.value = style.fields[field] ?? "";
+    input.addEventListener("change", () => {
+      style.fields[field] = input.value;
+      host.onChange();
+    });
+    return input;
+  };
+
+  // Colour boxes: each colour with opacity; border also carries its width + type, shadow
+  // its width. Mirrors the main interface's grouped colour controls.
+  gColours.append(
+    colourBox(t("stylePrimary"), "PrimaryColour"),
+    colourBox(t("styleSecondary"), "SecondaryColour"),
+    colourBox(t("styleOutline"), "OutlineColour", widthField("Outline"), borderSel),
+    colourBox(t("styleBack"), "BackColour", widthField("Shadow")),
+  );
+  const toggles = document.createElement("div");
+  toggles.className = "se-toggles";
+  toggles.append(
+    toggleBtn("B", "Bold", "se-t-b"),
+    toggleBtn("I", "Italic", "se-t-i"),
+    toggleBtn("U", "Underline", "se-t-u"),
+    toggleBtn("S", "StrikeOut", "se-t-s"),
+  );
+  gColours.appendChild(toggles);
+
+  // Scale / spacing / rotation.
+  for (const [label, field] of [
+    [t("styleScaleX"), "ScaleX"],
+    [t("styleScaleY"), "ScaleY"],
+    [t("styleSpacing"), "Spacing"],
+    [t("styleAngle"), "Angle"],
+  ] as const) {
+    gTransform.appendChild(
+      numField(label, "se-f-margin", style.fields[field] ?? "", (v) => {
+        style.fields[field] = v;
+        host.onChange();
+      }),
+    );
+  }
+
+  // Margins.
+  gMargins.append(
+    numField(t("marginL"), "se-f-margin", style.fields.MarginL ?? "", (v) => {
+      style.fields.MarginL = v;
+      host.onChange();
+    }),
+    numField(t("marginR"), "se-f-margin", style.fields.MarginR ?? "", (v) => {
+      style.fields.MarginR = v;
+      host.onChange();
+    }),
+  );
+  const marginVWrap = numField(t("marginV"), "se-f-margin", style.fields.MarginV ?? "", (v) => {
+    style.fields.MarginV = v;
+    host.onChange();
+  });
+  gMargins.appendChild(marginVWrap);
+  updateMarginV();
 
   dupBtn.addEventListener("click", () => {
     const copy: AssStyle = { name: uniqueStyleName(doc, style.name + " copy"), fields: { ...style.fields } };

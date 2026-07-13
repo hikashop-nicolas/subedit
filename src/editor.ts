@@ -19,7 +19,7 @@ import {
   sortCues,
 } from "./cue";
 import { parseSubtitles, serializeSubtitles, convertDoc } from "./subtitles";
-import { styleNames, hexToAssColor, makeDefaultStyle, uniqueStyleName, getPlayRes } from "./ass";
+import { styleNames, assColorToHex, makeDefaultStyle, uniqueStyleName, getPlayRes, embeddedFontNames } from "./ass";
 import { openStyleEditor, openScriptProperties } from "./styles-editor";
 import { openKaraoke } from "./karaoke";
 import { setLocale, t, alignmentOptions } from "./i18n";
@@ -29,6 +29,16 @@ import { createMediaPlayer, extractWaveformPeaks, type MediaPlayerHandle } from 
 export interface SubtitleInput {
   text: string;
   filename?: string;
+}
+
+// A vertex of an ASS drawing, in PlayRes coordinates. `type` is how it connects from the
+// previous vertex: "m" start, "l" straight line, "b" cubic bezier (with control points).
+interface DrawNode {
+  type: "m" | "l" | "b";
+  px: number;
+  py: number;
+  c1?: { px: number; py: number };
+  c2?: { px: number; py: number };
 }
 
 export interface SubtitleEditorOptions {
@@ -132,7 +142,15 @@ function injectStyles(): void {
 .se-stylefield select{font:inherit;padding:3px 6px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);}
 .se-styleedit{padding:3px 6px;}
 .se-detail textarea{font:inherit;min-height:56px;resize:vertical;padding:6px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);}
-.se-inlinebar{display:flex;gap:5px;align-items:center;}
+.se-tabs{display:flex;gap:4px;border-bottom:1px solid var(--se-border);}
+.se-tab{font:inherit;padding:4px 12px;border:1px solid transparent;border-bottom:none;border-radius:5px 5px 0 0;background:none;color:var(--se-muted);cursor:pointer;}
+.se-tab.on{background:var(--se-bg);color:var(--se-fg);border-color:var(--se-border);}
+.se-inlinebar{display:flex;gap:5px;align-items:center;flex-wrap:wrap;}
+.se-cgroup{display:flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid var(--se-border);border-radius:6px;}
+.se-cglabel{color:var(--se-muted);font-size:11px;}
+.se-widthfield{width:44px;font:inherit;padding:2px 4px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);}
+.se-alpha{width:54px;}
+.se-fontname{width:96px;font:inherit;padding:2px 4px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);}
 .se-inbtn{font:600 12px system-ui;width:26px;height:24px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);cursor:pointer;}
 .se-inbtn:hover{border-color:var(--se-accent);}
 .se-in-i{font-style:italic;}
@@ -150,6 +168,9 @@ function injectStyles(): void {
 .se-obtn.on,.se-obtn-primary{background:var(--se-accent);border-color:var(--se-accent);color:#fff;}
 .se-fadepop{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;padding:6px;border:1px solid var(--se-border);border-radius:6px;background:var(--se-bg);}
 .se-fadepop input{width:70px;}
+.se-xgroup{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end;padding:4px 8px;border:1px solid var(--se-border);border-radius:6px;}
+.se-xgroup .se-xglabel{flex-basis:100%;color:var(--se-muted);font-size:11px;}
+.se-xform input{width:56px;}
 .se-empty,.se-noprev{flex:1 1 auto;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--se-muted);}
 .se-noprev{color:#aab;}
 .se-empty h3{margin:0;color:var(--se-fg);font-size:15px;}
@@ -188,6 +209,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private waveAbort: AbortController | null = null;
   private waveStatusEl: HTMLDivElement | null = null;
   private detailTextarea: HTMLTextAreaElement | null = null;
+  private detailTab: "text" | "drawing" = "text";
   private posOverlay: HTMLDivElement | null = null;
   private positionCueId: string | null = null;
   private clipOverlay: HTMLDivElement | null = null;
@@ -440,6 +462,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
     if (this.drawOverlay) this.exitDraw();
     const prev = this.selectedId;
     this.selectedId = id;
+    const c = this.doc.cues.find((k) => k.id === id);
+    this.detailTab = c && /\\p[1-9]/.test(c.text) ? "drawing" : "text";
     if (prev) this.refreshRow(prev);
     this.refreshRow(id);
     this.scrollSelectedIntoView();
@@ -488,21 +512,142 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.detailEl.appendChild(times);
     if (this.doc.format === "ass") this.detailEl.appendChild(this.assExtrasRow(cue));
 
+    const ta = this.makeTextarea(cue);
+    if (this.doc.format === "ass") {
+      // Text / Drawing tabs: each shows only its relevant tools.
+      const tabs = el("div", "se-tabs");
+      const mkTab = (id: "text" | "drawing", label: string) => {
+        const b = el("button", "se-tab" + (this.detailTab === id ? " on" : ""), label);
+        b.addEventListener("click", () => {
+          this.detailTab = id;
+          this.renderDetail();
+        });
+        return b;
+      };
+      tabs.append(mkTab("text", t("tabText")), mkTab("drawing", t("tabDrawing")));
+      this.detailEl.appendChild(tabs);
+      this.detailEl.appendChild(this.inlineToolbar(cue, ta, this.detailTab));
+    }
+    this.detailEl.appendChild(ta);
+  }
+
+  private makeTextarea(cue: Cue): HTMLTextAreaElement {
     const ta = document.createElement("textarea");
     ta.value = cue.text;
     ta.spellcheck = false;
     this.detailTextarea = ta;
     ta.addEventListener("input", () => this.updateCue(cue.id, { text: ta.value }, /*fromText*/ true));
-    // ASS: an inline-formatting toolbar that wraps the selection in override tags.
-    if (this.doc.format === "ass") this.detailEl.appendChild(this.inlineToolbar(cue, ta));
-    this.detailEl.appendChild(ta);
+    return ta;
   }
 
-  // Buttons that wrap the current selection in the cue's text area with ASS override
-  // tags (bold/italic/underline/colour) or set the line alignment (\anN).
-  private inlineToolbar(cue: Cue, ta: HTMLTextAreaElement): HTMLElement {
-    const bar = el("div", "se-inlinebar");
+  // --- colours (whole-cue \1c fill / \3c border / \4c shadow-or-box) --------
 
+  private cueColorHex(cue: Cue, tag: string, styleField: string): string {
+    const m = cue.text.match(new RegExp(`\\\\${tag}&H([0-9A-Fa-f]{6})&`));
+    if (m) {
+      const h = m[1];
+      return `#${h.slice(4, 6)}${h.slice(2, 4)}${h.slice(0, 2)}`.toLowerCase();
+    }
+    const style = this.doc.styles?.find((s) => s.name === (cue.assFields?.Style ?? "Default"));
+    return assColorToHex(style?.fields[styleField] ?? "&H00FFFFFF").hex;
+  }
+
+  private setCueColor(cue: Cue, ta: HTMLTextAreaElement, tag: string, hex: string): void {
+    const m = hex.match(/^#?([0-9a-f]{6})$/i);
+    const h = m ? m[1] : "ffffff";
+    const bgr = (h.slice(4, 6) + h.slice(2, 4) + h.slice(0, 2)).toUpperCase();
+    const stripped = cue.text.replace(new RegExp(`\\\\${tag}&H[0-9A-Fa-f]+&`, "g"), "").replace(/\{\}/g, "");
+    ta.value = `{\\${tag}&H${bgr}&}` + stripped;
+    this.updateCue(cue.id, { text: ta.value }, true);
+  }
+
+  // A boxed area pairing a colour swatch with an opacity slider and an optional width
+  // field, under one label (Fill / Border / Shadow) so it reads as a single control.
+  private colorGroup(cue: Cue, ta: HTMLTextAreaElement, label: string, colorTag: string, alphaTag: string, styleField: string, colorTitle: string, widthTag?: string): HTMLElement {
+    const g = el("div", "se-cgroup");
+    g.appendChild(el("span", "se-cglabel", label));
+    g.appendChild(this.colorButton(cue, ta, colorTag, styleField, colorTitle));
+    g.appendChild(this.alphaSlider(cue, ta, alphaTag, styleField));
+    if (widthTag) g.appendChild(this.numField(cue, ta, widthTag, `${label}, ${t("width")}`));
+    return g;
+  }
+
+  // Opacity slider (0..100%) writing the alpha override (\1a/\3a/\4a). ASS alpha is
+  // inverted (&H00 opaque, &HFF transparent), so 100% == &H00.
+  private alphaSlider(cue: Cue, ta: HTMLTextAreaElement, alphaTag: string, styleField: string): HTMLInputElement {
+    const input = document.createElement("input");
+    input.type = "range";
+    input.className = "se-alpha";
+    input.min = "0";
+    input.max = "100";
+    const m = cue.text.match(new RegExp(`\\\\${alphaTag}&H([0-9A-Fa-f]{2})&`));
+    const style = this.doc.styles?.find((s) => s.name === (cue.assFields?.Style ?? "Default"));
+    const aa = m ? m[1] : assColorToHex(style?.fields[styleField] ?? "&H00FFFFFF").alpha;
+    const pct = Math.round((1 - parseInt(aa || "00", 16) / 255) * 100);
+    input.value = String(pct);
+    input.title = `${t("opacity")} ${pct}%`;
+    input.addEventListener("input", () => {
+      const hex = Math.round((1 - Number(input.value) / 100) * 255).toString(16).padStart(2, "0").toUpperCase();
+      const stripped = cue.text.replace(new RegExp(`\\\\${alphaTag}&H[0-9A-Fa-f]+&`, "g"), "").replace(/\{\}/g, "");
+      ta.value = `{\\${alphaTag}&H${hex}&}` + stripped;
+      input.title = `${t("opacity")} ${input.value}%`;
+      this.updateCue(cue.id, { text: ta.value }, true);
+    });
+    return input;
+  }
+
+  // Per-span font: name (\fn) and size (\fs), defaulting from the cue's style. The name
+  // input offers used and embedded fonts as suggestions.
+  private fontGroup(cue: Cue, ta: HTMLTextAreaElement): HTMLElement {
+    const g = el("div", "se-cgroup");
+    g.appendChild(el("span", "se-cglabel", t("styleFont")));
+    const style = this.doc.styles?.find((s) => s.name === (cue.assFields?.Style ?? "Default"));
+    const name = document.createElement("input");
+    name.type = "text";
+    name.className = "se-fontname";
+    name.title = t("styleFont");
+    name.setAttribute("list", "se-spanfontlist");
+    name.placeholder = style?.fields.Fontname ?? "";
+    name.value = cue.text.match(/\\fn([^\\}]+)/)?.[1]?.trim() ?? "";
+    name.addEventListener("change", () => {
+      const stripped = cue.text.replace(/\\fn[^\\}]*/g, "").replace(/\{\}/g, "");
+      ta.value = name.value.trim() === "" ? stripped : `{\\fn${name.value.trim()}}` + stripped;
+      this.updateCue(cue.id, { text: ta.value }, true);
+    });
+    g.append(name, this.fontDatalist(), this.numField(cue, ta, "fs", t("styleSize")));
+    return g;
+  }
+
+  private fontDatalist(): HTMLDataListElement {
+    const dl = document.createElement("datalist");
+    dl.id = "se-spanfontlist";
+    const fonts = new Set<string>();
+    for (const s of this.doc.styles ?? []) if (s.fields.Fontname) fonts.add(s.fields.Fontname);
+    for (const f of embeddedFontNames(this.doc)) fonts.add(f);
+    for (const f of ["Arial", "Helvetica", "Times New Roman", "Verdana", "Tahoma", "Trebuchet MS", "Georgia", "Courier New", "Comic Sans MS"]) fonts.add(f);
+    for (const f of fonts) {
+      const o = document.createElement("option");
+      o.value = f;
+      dl.appendChild(o);
+    }
+    return dl;
+  }
+
+  private colorButton(cue: Cue, ta: HTMLTextAreaElement, tag: string, styleField: string, title: string): HTMLElement {
+    const input = document.createElement("input");
+    input.type = "color";
+    input.className = "se-incolor";
+    input.title = title;
+    input.value = this.cueColorHex(cue, tag, styleField);
+    input.addEventListener("input", () => this.setCueColor(cue, ta, tag, input.value));
+    return input;
+  }
+
+  // The per-cue tool row. In "text" mode it shows text formatting (B/I/U, fade, karaoke,
+  // alignment); in "drawing" mode it shows shape tools (edit shape, border width). Colours,
+  // transform, position and clip apply to both.
+  private inlineToolbar(cue: Cue, ta: HTMLTextAreaElement, mode: "text" | "drawing"): HTMLElement {
+    const bar = el("div", "se-inlinebar");
     const wrap = (before: string, after: string): void => {
       const s = ta.selectionStart ?? ta.value.length;
       const e = ta.selectionEnd ?? s;
@@ -511,122 +656,99 @@ class SubtitleEditor implements SubtitleEditorHandle {
       ta.setSelectionRange(s + before.length, e + before.length);
       this.updateCue(cue.id, { text: ta.value }, true);
     };
-
-    const tagBtn = (label: string, on: string, off: string, cls: string): HTMLButtonElement => {
+    const iconBtn = (html: string, title: string, fn: () => void, extra = ""): HTMLButtonElement => {
       const b = document.createElement("button");
       b.type = "button";
-      b.className = `se-inbtn ${cls}`;
-      b.textContent = label;
-      b.title = label;
-      b.addEventListener("mousedown", (e) => e.preventDefault()); // keep the text selection
-      b.addEventListener("click", () => wrap(`{\\${on}}`, `{\\${off}}`));
+      b.className = `se-inbtn ${extra}`;
+      b.innerHTML = html;
+      b.title = title;
+      b.addEventListener("mousedown", (e) => e.preventDefault());
+      b.addEventListener("click", fn);
       return b;
     };
-    bar.append(
-      tagBtn("B", "b1", "b0", "se-in-b"),
-      tagBtn("I", "i1", "i0", "se-in-i"),
-      tagBtn("U", "u1", "u0", "se-in-u"),
-    );
 
-    // Colour: wrap the selection in {\c&HBBGGRR&}...{\r} (reset to the style at the end).
-    const colour = document.createElement("input");
-    colour.type = "color";
-    colour.className = "se-incolor";
-    colour.title = t("stylePrimary");
-    colour.addEventListener("mousedown", (e) => e.stopPropagation());
-    colour.addEventListener("input", () => wrap(`{\\c${hexToAssColor(colour.value)}}`, "{\\r}"));
-    bar.appendChild(colour);
-
-    // Fade in/out: prepend {\fad(in,out)} (ms).
-    const fade = document.createElement("button");
-    fade.type = "button";
-    fade.className = "se-inbtn";
-    fade.innerHTML = ICON.fade;
-    fade.title = t("fade");
-    fade.addEventListener("mousedown", (e) => e.preventDefault());
-    fade.addEventListener("click", () => this.openFade(cue, ta));
-    bar.appendChild(fade);
-
-    // Karaoke: syllable timing (\kf).
-    const kar = document.createElement("button");
-    kar.type = "button";
-    kar.className = "se-inbtn";
-    kar.innerHTML = ICON.mic;
-    kar.title = t("karaoke");
-    kar.addEventListener("mousedown", (e) => e.preventDefault());
-    kar.addEventListener("click", () =>
-      openKaraoke(cue, this.video ?? null, this.wavePeaks, (text) => {
-        ta.value = text;
-        this.updateCue(cue.id, { text }, true);
-      }),
-    );
-    bar.appendChild(kar);
-
-    // Transform: rotation / scale / spacing / blur.
-    const tr = document.createElement("button");
-    tr.type = "button";
-    tr.className = "se-inbtn";
-    tr.innerHTML = ICON.transform;
-    tr.title = t("transform");
-    tr.addEventListener("mousedown", (e) => e.preventDefault());
-    tr.addEventListener("click", () => this.openTransform(cue, ta));
-    bar.appendChild(tr);
-
-    // Alignment: the cue's inline \anN override. "No alignment" removes it (the line
-    // then uses its style's alignment). Reflects the current override.
-    const align = document.createElement("select");
-    align.className = "se-inalign";
-    align.title = t("styleAlign");
-    const optNone = document.createElement("option");
-    optNone.value = "none";
-    optNone.textContent = t("noAlign");
-    align.appendChild(optNone);
-    for (const { value, label } of alignmentOptions()) {
-      const o = document.createElement("option");
-      o.value = value;
-      o.textContent = label;
-      align.appendChild(o);
+    if (mode === "text") {
+      const tagBtn = (label: string, on: string, off: string, cls: string) => {
+        const b = iconBtn("", label, () => wrap(`{\\${on}}`, `{\\${off}}`), cls);
+        b.textContent = label;
+        return b;
+      };
+      bar.append(tagBtn("B", "b1", "b0", "se-in-b"), tagBtn("I", "i1", "i0", "se-in-i"), tagBtn("U", "u1", "u0", "se-in-u"));
+      bar.appendChild(this.fontGroup(cue, ta));
     }
-    align.value = cue.text.match(/\\an([1-9])/)?.[1] ?? "none";
-    align.addEventListener("change", () => {
-      const stripped = cue.text.replace(/\{\\an[1-9]\}/g, "").replace(/\\an[1-9]/g, "").replace(/\{\}/g, "");
-      ta.value = align.value === "none" ? stripped : `{\\an${align.value}}` + stripped;
-      this.updateCue(cue.id, { text: ta.value }, true);
-      if (this.doc.format === "ass") this.renderDetail(); // margin V visibility depends on this
-    });
-    bar.appendChild(align);
 
-    // Position picker: click on the preview to place the line (\pos).
-    const posBtn = document.createElement("button");
-    posBtn.type = "button";
-    posBtn.className = "se-inbtn se-posbtn" + (this.positionCueId === cue.id ? " on" : "");
-    posBtn.textContent = "⌖";
-    posBtn.title = t("positionPick");
-    posBtn.addEventListener("mousedown", (e) => e.preventDefault());
-    posBtn.addEventListener("click", () => this.togglePosition(cue));
-    bar.appendChild(posBtn);
+    // Fill / border / shadow, each grouping its colour with its width. Applies to
+    // drawings and text alike (an ASS shape is outlined and shadowed like glyphs are).
+    bar.append(
+      this.colorGroup(cue, ta, t("fill"), "1c", "1a", "PrimaryColour", t("colorFill")),
+      this.colorGroup(cue, ta, t("borderWidth"), "3c", "3a", "OutlineColour", t("colorBorder"), "bord"),
+      this.colorGroup(cue, ta, t("shadowWidth"), "4c", "4a", "BackColour", t("colorBack"), "shad"),
+    );
 
-    // Clip: drag a rectangle on the preview to set \clip (or \iclip).
-    const clipBtn = document.createElement("button");
-    clipBtn.type = "button";
-    clipBtn.className = "se-inbtn se-posbtn" + (this.clipOverlay ? " on" : "");
-    clipBtn.innerHTML = ICON.clip;
-    clipBtn.title = t("clip");
-    clipBtn.addEventListener("mousedown", (e) => e.preventDefault());
-    clipBtn.addEventListener("click", () => this.toggleClip(cue));
-    bar.appendChild(clipBtn);
+    if (mode === "drawing") {
+      bar.appendChild(iconBtn(ICON.draw, t("editShape"), () => this.toggleDraw(cue), "se-posbtn" + (this.drawOverlay ? " on" : "")));
+    }
 
-    // Draw: click points on the preview to build a vector shape (\p).
-    const drawBtn = document.createElement("button");
-    drawBtn.type = "button";
-    drawBtn.className = "se-inbtn se-posbtn" + (this.drawOverlay ? " on" : "");
-    drawBtn.innerHTML = ICON.draw;
-    drawBtn.title = t("draw");
-    drawBtn.addEventListener("mousedown", (e) => e.preventDefault());
-    drawBtn.addEventListener("click", () => this.toggleDraw(cue));
-    bar.appendChild(drawBtn);
+    // Fade and transform apply to both text and drawings; karaoke is text-only.
+    bar.appendChild(iconBtn(ICON.fade, t("fade"), () => this.openFade(cue, ta)));
+    if (mode === "text") {
+      bar.appendChild(
+        iconBtn(ICON.mic, t("karaoke"), () =>
+          openKaraoke(cue, this.video ?? null, this.wavePeaks, this.cueColorHex(cue, "2c", "SecondaryColour"), (text) => {
+            ta.value = text;
+            this.updateCue(cue.id, { text }, true);
+          }),
+        ),
+      );
+    }
 
+    bar.appendChild(iconBtn(ICON.transform, t("transform"), () => this.openTransform(cue, ta)));
+
+    if (mode === "text") {
+      const align = document.createElement("select");
+      align.className = "se-inalign";
+      align.title = t("styleAlign");
+      const optNone = document.createElement("option");
+      optNone.value = "none";
+      optNone.textContent = t("noAlign");
+      align.appendChild(optNone);
+      for (const { value, label } of alignmentOptions()) {
+        const o = document.createElement("option");
+        o.value = value;
+        o.textContent = label;
+        align.appendChild(o);
+      }
+      align.value = cue.text.match(/\\an([1-9])/)?.[1] ?? "none";
+      align.addEventListener("change", () => {
+        const stripped = cue.text.replace(/\{\\an[1-9]\}/g, "").replace(/\\an[1-9]/g, "").replace(/\{\}/g, "");
+        ta.value = align.value === "none" ? stripped : `{\\an${align.value}}` + stripped;
+        this.updateCue(cue.id, { text: ta.value }, true);
+        this.renderDetail();
+      });
+      bar.appendChild(align);
+    }
+
+    bar.appendChild(iconBtn("⌖", t("positionPick"), () => this.togglePosition(cue), "se-posbtn" + (this.positionCueId === cue.id ? " on" : "")));
+    bar.appendChild(iconBtn(ICON.clip, t("clip"), () => this.toggleClip(cue), "se-posbtn" + (this.clipOverlay ? " on" : "")));
     return bar;
+  }
+
+  // A numeric override field, e.g. border width (\bord) or shadow depth (\shad).
+  private numField(cue: Cue, ta: HTMLTextAreaElement, tag: string, title: string): HTMLInputElement {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.className = "se-widthfield";
+    input.min = "0";
+    input.step = "0.5";
+    input.title = title;
+    input.placeholder = title;
+    input.value = cue.text.match(new RegExp(`\\\\${tag}([\\d.]+)`))?.[1] ?? "";
+    input.addEventListener("change", () => {
+      const stripped = cue.text.replace(new RegExp(`\\\\${tag}[\\d.]+`, "g"), "").replace(/\{\}/g, "");
+      ta.value = input.value === "" ? stripped : `{\\${tag}${input.value}}` + stripped;
+      this.updateCue(cue.id, { text: ta.value }, true);
+    });
+    return input;
   }
 
   // --- position picker (\pos via clicking the preview) ---------------------
@@ -865,32 +987,124 @@ class SubtitleEditor implements SubtitleEditorHandle {
     canvas.width = Math.round(cr.width);
     canvas.height = Math.round(cr.height);
     const ctx = canvas.getContext("2d")!;
-    const pts: { x: number; y: number }[] = []; // overlay-local coords
+    const res = getPlayRes(this.doc);
+    const toLocal = (px: number, py: number) => ({ x: (px / res.x) * canvas.width, y: (py / res.y) * canvas.height });
+    const toPlay = (x: number, y: number) => ({ px: Math.round((x / canvas.width) * res.x), py: Math.round((y / canvas.height) * res.y) });
+
+    const nodes: DrawNode[] = this.parseDrawing(cue); // existing shape, if any
+    let selected = nodes.length ? nodes.length - 1 : -1;
+    let drag: { index: number; part: "anchor" | "c1" | "c2" } | null = null;
+    const HIT = 8;
 
     const redraw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (!pts.length) return;
+      if (!nodes.length) return;
+      const L = (n: { px: number; py: number }) => toLocal(n.px, n.py);
       ctx.beginPath();
-      ctx.moveTo(pts[0].x, pts[0].y);
-      for (const p of pts.slice(1)) ctx.lineTo(p.x, p.y);
-      if (pts.length > 2) ctx.closePath();
+      const p0 = L(nodes[0]);
+      ctx.moveTo(p0.x, p0.y);
+      for (const n of nodes.slice(1)) {
+        const p = L(n);
+        if (n.type === "b" && n.c1 && n.c2) {
+          const c1 = L(n.c1);
+          const c2 = L(n.c2);
+          ctx.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, p.x, p.y);
+        } else ctx.lineTo(p.x, p.y);
+      }
+      if (nodes.length > 2) ctx.closePath();
       ctx.fillStyle = "rgba(96,165,250,0.35)";
       ctx.strokeStyle = "#60a5fa";
       ctx.lineWidth = 1.5;
-      if (pts.length > 2) ctx.fill();
+      if (nodes.length > 2) ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = "#fff";
-      for (const p of pts) {
+      // Control handles for bezier nodes.
+      ctx.strokeStyle = "rgba(255,255,255,0.5)";
+      ctx.lineWidth = 1;
+      nodes.forEach((n) => {
+        if (n.type === "b" && n.c1 && n.c2) {
+          const p = L(n);
+          for (const c of [L(n.c1), L(n.c2)]) {
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(c.x, c.y);
+            ctx.stroke();
+            ctx.fillStyle = "#fde68a";
+            ctx.fillRect(c.x - 3, c.y - 3, 6, 6);
+          }
+        }
+      });
+      // Anchor points.
+      nodes.forEach((n, i) => {
+        const p = L(n);
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, i === selected ? 5 : 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = i === selected ? "#60a5fa" : "#fff";
         ctx.fill();
-      }
+      });
     };
+
+    const hitTest = (x: number, y: number): { index: number; part: "anchor" | "c1" | "c2" } | null => {
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        if (n.type === "b") {
+          for (const part of ["c1", "c2"] as const) {
+            const c = n[part];
+            if (c) {
+              const l = toLocal(c.px, c.py);
+              if (Math.hypot(l.x - x, l.y - y) <= HIT) return { index: i, part };
+            }
+          }
+        }
+      }
+      for (let i = 0; i < nodes.length; i++) {
+        const l = toLocal(nodes[i].px, nodes[i].py);
+        if (Math.hypot(l.x - x, l.y - y) <= HIT) return { index: i, part: "anchor" };
+      }
+      return null;
+    };
+
     ov.addEventListener("pointerdown", (e) => {
       const r = ov.getBoundingClientRect();
-      pts.push({ x: e.clientX - r.left, y: e.clientY - r.top });
+      const x = e.clientX - r.left;
+      const y = e.clientY - r.top;
+      const hit = hitTest(x, y);
+      if (hit) {
+        drag = hit;
+        if (hit.part === "anchor") selected = hit.index;
+        ov.setPointerCapture(e.pointerId);
+      } else {
+        // Add a new vertex (the first one starts the shape).
+        const pl = toPlay(x, y);
+        nodes.push({ type: nodes.length ? "l" : "m", px: pl.px, py: pl.py });
+        selected = nodes.length - 1;
+      }
       redraw();
     });
+    ov.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      const r = ov.getBoundingClientRect();
+      const pl = toPlay(e.clientX - r.left, e.clientY - r.top);
+      const n = nodes[drag.index];
+      if (drag.part === "anchor") {
+        const dx = pl.px - n.px;
+        const dy = pl.py - n.py;
+        n.px = pl.px;
+        n.py = pl.py;
+        if (n.c1) (n.c1.px += dx), (n.c1.py += dy); // move the handles with the anchor
+        if (n.c2) (n.c2.px += dx), (n.c2.py += dy);
+      } else if (n[drag.part]) {
+        n[drag.part]!.px = pl.px;
+        n[drag.part]!.py = pl.py;
+      }
+      redraw();
+    });
+    const endDrag = (e: PointerEvent) => {
+      if (drag) {
+        drag = null;
+        ov.releasePointerCapture(e.pointerId);
+      }
+    };
+    ov.addEventListener("pointerup", endDrag);
 
     const bar = el("div", "se-posbar");
     const mkBtn = (label: string, primary: boolean, fn: () => void) => {
@@ -904,34 +1118,95 @@ class SubtitleEditor implements SubtitleEditorHandle {
       });
       return b;
     };
+    // Toggle the selected vertex between a straight line and a bezier curve.
+    const toggleCurve = () => {
+      if (selected <= 0 || !nodes[selected]) return;
+      const n = nodes[selected];
+      const prev = nodes[selected - 1];
+      if (n.type === "b") {
+        n.type = "l";
+        delete n.c1;
+        delete n.c2;
+      } else {
+        n.type = "b";
+        n.c1 = { px: Math.round(prev.px + (n.px - prev.px) / 3), py: Math.round(prev.py + (n.py - prev.py) / 3) };
+        n.c2 = { px: Math.round(prev.px + (2 * (n.px - prev.px)) / 3), py: Math.round(prev.py + (2 * (n.py - prev.py)) / 3) };
+      }
+      redraw();
+    };
     bar.append(
       mkBtn(t("drawUndo"), false, () => {
-        pts.pop();
+        nodes.pop();
+        selected = Math.min(selected, nodes.length - 1);
         redraw();
       }),
+      mkBtn(t("drawCurve"), false, toggleCurve),
       mkBtn(t("drawClear"), false, () => {
-        pts.length = 0;
+        nodes.length = 0;
+        selected = -1;
         redraw();
       }),
-      mkBtn(t("apply"), true, () => this.applyDrawing(cue, ov, pts)),
+      mkBtn(t("apply"), true, () => this.applyDrawing(cue, nodes)),
       mkBtn(t("done"), false, () => this.exitDraw()),
     );
     ov.append(canvas, bar, el("div", "se-poshint", t("drawHint")));
     this.rightEl.appendChild(ov);
     this.drawOverlay = ov;
+    redraw();
     document.addEventListener("keydown", this.onDrawKey, true);
     this.renderDetail();
   }
 
-  private applyDrawing(cue: Cue, ov: HTMLElement, ptsLocal: { x: number; y: number }[]): void {
-    if (ptsLocal.length < 2) return;
-    const r = ov.getBoundingClientRect();
-    const pts = ptsLocal.map((p) => this.clientToPlayRes(p.x + r.left, p.y + r.top)).filter((p): p is { px: number; py: number } => !!p);
-    if (pts.length < 2) return;
+  // Parse the cue's existing \p drawing into editable vertices (PlayRes coords, with any
+  // \pos/\move offset folded in). Supports m / l / b commands; others are skipped.
+  private parseDrawing(cue: Cue): DrawNode[] {
+    const body = cue.text.match(/\\p[1-9][^}]*\}([^{]*)/)?.[1];
+    if (!body) return [];
+    const pos = cue.text.match(/\\(?:pos|move)\((-?[\d.]+),(-?[\d.]+)/);
+    const ox = pos ? parseFloat(pos[1]) : 0;
+    const oy = pos ? parseFloat(pos[2]) : 0;
+    const toks = body.trim().split(/\s+/).filter(Boolean);
+    const nodes: DrawNode[] = [];
+    let i = 0;
+    let cmd = "";
+    const num = () => parseFloat(toks[i++]);
+    while (i < toks.length) {
+      if (/^[a-zA-Z]+$/.test(toks[i])) {
+        cmd = toks[i].toLowerCase();
+        i++;
+        continue;
+      }
+      if (cmd === "m" || cmd === "l") {
+        const px = num() + ox;
+        const py = num() + oy;
+        if (Number.isNaN(px) || Number.isNaN(py)) break;
+        nodes.push({ type: cmd === "m" ? "m" : "l", px, py });
+        if (cmd === "m") cmd = "l";
+      } else if (cmd === "b") {
+        const c1 = { px: num() + ox, py: num() + oy };
+        const c2 = { px: num() + ox, py: num() + oy };
+        const px = num() + ox;
+        const py = num() + oy;
+        if (Number.isNaN(px) || Number.isNaN(py) || Number.isNaN(c1.px) || Number.isNaN(c2.px)) break;
+        nodes.push({ type: "b", px, py, c1, c2 });
+      } else i++;
+    }
+    return nodes.length >= 2 ? nodes : [];
+  }
+
+  private applyDrawing(cue: Cue, nodes: DrawNode[]): void {
+    if (nodes.length < 2) return;
     // Absolute drawing: \an7\pos(0,0) puts the drawing origin at the screen origin, so the
-    // PlayRes point coords map directly onto the picture.
-    const cmds = `m ${pts[0].px} ${pts[0].py} ` + pts.slice(1).map((p) => `l ${p.px} ${p.py}`).join(" ");
-    cue.text = `{\\an7\\pos(0,0)\\p1}${cmds}{\\p0}`;
+    // PlayRes coords map directly onto the picture. Existing style tags are preserved.
+    const cmds = nodes
+      .map((n, i) => {
+        if (i === 0) return `m ${n.px} ${n.py}`;
+        if (n.type === "b" && n.c1 && n.c2) return `b ${n.c1.px} ${n.c1.py} ${n.c2.px} ${n.c2.py} ${n.px} ${n.py}`;
+        return `l ${n.px} ${n.py}`;
+      })
+      .join(" ");
+    const style = cue.text.replace(/\\p[1-9][^}]*\}[^{]*(?:\{\\p0\})?/g, "").match(/\\(1c|3c|4c|1a|3a|4a|bord|shad)[^\\}]*/g)?.join("") ?? "";
+    cue.text = `{\\an7\\pos(0,0)${style}\\p1}${cmds}{\\p0}`;
     if (this.detailTextarea) this.detailTextarea.value = cue.text;
     this.refreshRow(cue.id);
     this.markDirty();
@@ -954,55 +1229,120 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
   // --- fade ----------------------------------------------------------------
 
+  // Fade popover. Simple in/out writes \fad(in,out); ticking "Advanced" exposes the
+  // 7-argument \fade(a1,a2,a3,t1,t2,t3,t4) form and writes that instead.
   private openFade(cue: Cue, ta: HTMLTextAreaElement): void {
     this.detailEl.querySelector(".se-fadepop")?.remove();
-    const cur = cue.text.match(/\\fad\((\d+),(\d+)\)/);
-    const pop = el("div", "se-fadepop");
-    const field = (label: string, val: string): { wrap: HTMLElement; input: HTMLInputElement } => {
+    const simple = cue.text.match(/\\fad\((\d+),(\d+)\)/);
+    const adv = cue.text.match(/\\fade\(([^)]*)\)/);
+    const av = adv ? adv[1].split(",").map((s) => s.trim()) : [];
+    const dur = Math.max(0, cue.endMs - cue.startMs);
+    const pop = el("div", "se-fadepop se-xform");
+    const field = (parent: HTMLElement, label: string, val: string): HTMLInputElement => {
       const wrap = el("label", "se-field", label);
       const input = document.createElement("input");
       input.type = "number";
       input.value = val;
       wrap.appendChild(input);
-      return { wrap, input };
+      parent.appendChild(wrap);
+      return input;
     };
-    const fin = field(t("fadeIn"), cur?.[1] ?? "200");
-    const fout = field(t("fadeOut"), cur?.[2] ?? "200");
+    const group = (title: string): HTMLElement => {
+      const g = el("div", "se-xgroup");
+      g.appendChild(el("span", "se-xglabel", title));
+      pop.appendChild(g);
+      return g;
+    };
+
+    const simpleGrp = group(t("fade"));
+    const fin = field(simpleGrp, t("fadeIn"), simple?.[1] ?? "200");
+    const fout = field(simpleGrp, t("fadeOut"), simple?.[2] ?? "200");
+
+    const advToggle = el("label", "se-field se-checkfield", t("fadeAdvanced"));
+    const advCb = document.createElement("input");
+    advCb.type = "checkbox";
+    advCb.checked = !!adv;
+    advToggle.appendChild(advCb);
+    pop.appendChild(advToggle);
+
+    const advGrp = group(t("fadeAdvanced"));
+    const a1 = field(advGrp, "α1", av[0] ?? "255");
+    const a2 = field(advGrp, "α2", av[1] ?? "0");
+    const a3 = field(advGrp, "α3", av[2] ?? "255");
+    const t1 = field(advGrp, "t1", av[3] ?? "0");
+    const t2 = field(advGrp, "t2", av[4] ?? String(Math.min(300, dur)));
+    const t3 = field(advGrp, "t3", av[5] ?? String(Math.max(0, dur - 300)));
+    const t4 = field(advGrp, "t4", av[6] ?? String(dur));
+
+    const sync = (): void => {
+      advGrp.style.display = advCb.checked ? "" : "none";
+      simpleGrp.style.display = advCb.checked ? "none" : "";
+    };
+    advCb.addEventListener("change", sync);
+    sync();
+
     const apply = document.createElement("button");
     apply.className = "se-btn";
     apply.textContent = t("apply");
     apply.addEventListener("click", () => {
-      const i = parseInt(fin.input.value, 10) || 0;
-      const o = parseInt(fout.input.value, 10) || 0;
-      const stripped = cue.text.replace(/\\fad\([^)]*\)/g, "").replace(/\{\}/g, "");
-      ta.value = `{\\fad(${i},${o})}` + stripped;
+      const stripped = cue.text.replace(/\\fade\([^)]*\)/g, "").replace(/\\fad\([^)]*\)/g, "").replace(/\{\}/g, "");
+      let tag: string;
+      if (advCb.checked) {
+        const v = [a1, a2, a3, t1, t2, t3, t4].map((i) => parseInt(i.value, 10) || 0);
+        tag = `{\\fade(${v.join(",")})}`;
+      } else {
+        tag = `{\\fad(${parseInt(fin.value, 10) || 0},${parseInt(fout.value, 10) || 0})}`;
+      }
+      ta.value = tag + stripped;
       this.updateCue(cue.id, { text: ta.value }, true);
       pop.remove();
     });
-    pop.append(fin.wrap, fout.wrap, apply);
+    pop.appendChild(apply);
     this.detailEl.appendChild(pop);
-    fin.input.focus();
+    fin.focus();
   }
 
-  // Transform popover: rotation (\frz), scale (\fscx/\fscy), spacing (\fsp), blur (\blur).
+  // Transform popover, grouped: Rotate (\frx/\fry/\frz) + origin (\org), Scale
+  // (\fscx/\fscy), Shear (\fax/\fay), plus spacing/blur/edge-blur. Animate wraps the
+  // animatable tags in \t (\org is not animatable, so it stays outside).
   private openTransform(cue: Cue, ta: HTMLTextAreaElement): void {
     this.detailEl.querySelector(".se-fadepop")?.remove();
     const get = (re: RegExp, def: string): string => cue.text.match(re)?.[1] ?? def;
-    const pop = el("div", "se-fadepop");
-    const field = (label: string, val: string): HTMLInputElement => {
+    const pop = el("div", "se-fadepop se-xform");
+    const field = (parent: HTMLElement, label: string, val: string): HTMLInputElement => {
       const wrap = el("label", "se-field", label);
       const input = document.createElement("input");
       input.type = "number";
       input.value = val;
       wrap.appendChild(input);
-      pop.appendChild(wrap);
+      parent.appendChild(wrap);
       return input;
     };
-    const frz = field(t("styleAngle"), get(/\\frz(-?[\d.]+)/, "0"));
-    const fscx = field(t("styleScaleX"), get(/\\fscx([\d.]+)/, "100"));
-    const fscy = field(t("styleScaleY"), get(/\\fscy([\d.]+)/, "100"));
-    const fsp = field(t("styleSpacing"), get(/\\fsp(-?[\d.]+)/, "0"));
-    const blur = field(t("blur"), get(/\\blur([\d.]+)/, "0"));
+    const group = (title: string): HTMLElement => {
+      const g = el("div", "se-xgroup");
+      g.appendChild(el("span", "se-xglabel", title));
+      pop.appendChild(g);
+      return g;
+    };
+
+    const rot = group(t("rotate"));
+    const frx = field(rot, "X", get(/\\frx(-?[\d.]+)/, "0"));
+    const fry = field(rot, "Y", get(/\\fry(-?[\d.]+)/, "0"));
+    const frz = field(rot, "Z", get(/\\frz(-?[\d.]+)/, "0"));
+    const org = cue.text.match(/\\org\((-?[\d.]+),(-?[\d.]+)\)/);
+    const originGrp = group(t("origin"));
+    const orgX = field(originGrp, "X", org?.[1] ?? "");
+    const orgY = field(originGrp, "Y", org?.[2] ?? "");
+    const scale = group(t("scale"));
+    const fscx = field(scale, "X", get(/\\fscx([\d.]+)/, "100"));
+    const fscy = field(scale, "Y", get(/\\fscy([\d.]+)/, "100"));
+    const shear = group(t("shear"));
+    const fax = field(shear, "X", get(/\\fax(-?[\d.]+)/, "0"));
+    const fay = field(shear, "Y", get(/\\fay(-?[\d.]+)/, "0"));
+    const misc = group("");
+    const fsp = field(misc, t("styleSpacing"), get(/\\fsp(-?[\d.]+)/, "0"));
+    const blur = field(misc, t("blur"), get(/\\blur([\d.]+)/, "0"));
+    const be = field(misc, t("edgeBlur"), get(/\\be([\d.]+)/, "0"));
 
     // Animate: wrap the transform in \t so it eases from the style default to these values.
     const animWrap = el("label", "se-field se-checkfield", t("animate"));
@@ -1016,17 +1356,28 @@ class SubtitleEditor implements SubtitleEditorHandle {
     apply.className = "se-btn";
     apply.textContent = t("apply");
     apply.addEventListener("click", () => {
-      const stripped = cue.text.replace(/\\t\([^)]*\)/g, "").replace(/\\(frz|fscx|fscy|fsp|blur)-?[\d.]+/g, "").replace(/\{\}/g, "");
+      const stripped = cue.text
+        .replace(/\\t\([^)]*\)/g, "")
+        .replace(/\\org\([^)]*\)/g, "")
+        .replace(/\\(frx|fry|frz|fscx|fscy|fsp|be|blur|fax|fay)-?[\d.]+/g, "")
+        .replace(/\{\}/g, "");
       const tags: string[] = [];
       const add = (tag: string, v: string, def: number) => {
         if (v !== "" && parseFloat(v) !== def) tags.push(`\\${tag}${v}`);
       };
+      add("frx", frx.value, 0);
+      add("fry", fry.value, 0);
       add("frz", frz.value, 0);
       add("fscx", fscx.value, 100);
       add("fscy", fscy.value, 100);
+      add("fax", fax.value, 0);
+      add("fay", fay.value, 0);
       add("fsp", fsp.value, 0);
       add("blur", blur.value, 0);
-      const body = tags.length ? (anim.checked ? `\\t(${tags.join("")})` : tags.join("")) : "";
+      add("be", be.value, 0);
+      const anims = tags.length ? (anim.checked ? `\\t(${tags.join("")})` : tags.join("")) : "";
+      const origin = orgX.value !== "" && orgY.value !== "" ? `\\org(${orgX.value},${orgY.value})` : "";
+      const body = origin + anims;
       ta.value = (body ? `{${body}}` : "") + stripped;
       this.updateCue(cue.id, { text: ta.value }, true);
       pop.remove();
