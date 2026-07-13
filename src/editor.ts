@@ -2021,7 +2021,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     job.stage = "download";
     this.renderJobStrip();
     this.renderTrackBar();
-    const texts = uniqueIndices.map((u) => job.plan.uniqueTexts[u]);
+    const texts = uniqueIndices.map((u) => job.plan.mtSource[u]);
     job.run = runTranslate(texts, job.opts, {
       onProgress: (p) => {
         job.stage = p.stage === "download" ? "download" : "translate";
