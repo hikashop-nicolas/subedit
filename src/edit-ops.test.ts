@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeCuesAt, splitCueAt, clampStart, clampEnd, findProblems, matchCues, replaceAllInCues } from "./edit-ops";
+import { mergeCuesAt, splitCueAt, clampStart, clampEnd, findProblems, matchCues, replaceAllInCues, autoFixTiming } from "./edit-ops";
 import { blankCue, type Cue } from "./cue";
 
 function cue(startMs: number, endMs: number, text: string): Cue {
@@ -76,6 +76,25 @@ describe("findProblems", () => {
     expect(kinds).toContain("tooFast");
     expect(kinds).toContain("tooLong");
     expect(findProblems([cue(0, 2000, "fine")], { cpsBad: 27, maxDurMs: 7000 })).toHaveLength(0);
+  });
+});
+
+describe("autoFixTiming", () => {
+  const opts = { minGapMs: 80, minDurMs: 700, maxDurMs: 7000 };
+  it("extends short cues and caps long ones", () => {
+    const out = autoFixTiming([cue(0, 200, "short"), cue(10000, 20000, "long")], opts);
+    expect(out[0].endMs).toBe(700); // extended to min
+    expect(out[1].endMs).toBe(17000); // capped to 10000 + 7000
+  });
+  it("opens a gap when cues overlap", () => {
+    const out = autoFixTiming([cue(0, 3000, "a"), cue(2000, 4000, "b")], opts);
+    expect(out[0].endMs).toBe(2000 - 80); // trimmed to leave an 80ms gap
+    expect(out[1].startMs).toBe(2000);
+  });
+  it("does not mutate the input", () => {
+    const cues = [cue(0, 100, "x")];
+    autoFixTiming(cues, opts);
+    expect(cues[0].endMs).toBe(100);
   });
 });
 

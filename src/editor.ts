@@ -28,6 +28,7 @@ import {
   findProblems,
   matchCues,
   replaceAllInCues,
+  autoFixTiming,
   type ProblemKind,
 } from "./edit-ops";
 import { ROW_H, OVERSCAN, CPS_WARN, CPS_BAD } from "./metrics";
@@ -2363,6 +2364,14 @@ class SubtitleEditor implements SubtitleEditorHandle {
     if (!issues.length) {
       panel.appendChild(el("div", "se-prob-empty", t("noProblems")));
     } else {
+      // Header: issue count + a one-click timing fix (caps durations, resolves overlaps).
+      const head = el("div", "se-prob-head");
+      head.appendChild(el("span", "", t("problemCount", { n: String(issues.length) })));
+      const fixBtn = this.button(t("fixTiming"), () => this.fixTiming());
+      fixBtn.className = "se-obtn se-obtn-primary";
+      fixBtn.title = t("fixTimingHint");
+      head.appendChild(fixBtn);
+      panel.appendChild(head);
       for (const p of issues) {
         const row = el("div", "se-prob-row");
         row.appendChild(el("span", "se-prob-idx", String(p.index + 1)));
@@ -2391,6 +2400,22 @@ class SubtitleEditor implements SubtitleEditorHandle {
       const b = tb.getBoundingClientRect();
       const r = this.root.getBoundingClientRect();
       panel.style.top = `${Math.round(b.bottom - r.top + 4)}px`;
+    }
+  }
+
+  // One-click timing cleanup: clamp durations and open gaps between cues. Re-renders and, if
+  // the panel is open, refreshes it so the fixed problem list shows.
+  private fixTiming(): void {
+    this.doc.cues = autoFixTiming(this.doc.cues, { minGapMs: 80, minDurMs: 700, maxDurMs: 7000 });
+    this.rows.clear();
+    this.innerEl.textContent = "";
+    this.renderList();
+    this.renderDetail(); // the selected cue's times may have changed
+    this.markDirty();
+    this.toast(t("timingFixed"));
+    if (this.problemsPanel) {
+      this.toggleProblems(); // close, then reopen to refresh the (now shorter) issue list
+      this.toggleProblems();
     }
   }
 

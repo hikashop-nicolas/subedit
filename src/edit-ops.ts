@@ -81,6 +81,32 @@ export function findProblems(cues: Cue[], opts: { cpsBad: number; maxDurMs: numb
   return out;
 }
 
+export interface TimingFixOptions {
+  minGapMs: number; // minimum gap enforced between consecutive cues
+  minDurMs: number; // minimum cue duration (short cues are extended if there's room)
+  maxDurMs: number; // maximum cue duration (long cues are capped)
+}
+
+// Normalize cue timing: clamp each duration to [minDur, maxDur], then trim any overlap so
+// consecutive cues keep at least minGap between them. Returns a new array; inputs untouched.
+// (Reading speed isn't auto-extended, that would require shifting neighbours; it's advisory.)
+export function autoFixTiming(cues: Cue[], opts: TimingFixOptions): Cue[] {
+  const out = cues.map((c) => ({ ...c }));
+  for (const c of out) {
+    const d = c.endMs - c.startMs;
+    if (d < opts.minDurMs) c.endMs = c.startMs + opts.minDurMs;
+    else if (d > opts.maxDurMs) c.endMs = c.startMs + opts.maxDurMs;
+  }
+  for (let i = 0; i < out.length - 1; i += 1) {
+    const a = out[i];
+    const b = out[i + 1];
+    if (a.endMs > b.startMs - opts.minGapMs) {
+      a.endMs = Math.max(a.startMs + 1, b.startMs - opts.minGapMs);
+    }
+  }
+  return out;
+}
+
 // Ids of the cues whose text contains `query` (case-insensitive); empty for an empty query.
 export function matchCues(cues: Cue[], query: string): string[] {
   const q = query.toLowerCase();

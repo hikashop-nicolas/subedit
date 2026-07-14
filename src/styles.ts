@@ -146,6 +146,7 @@ export function injectStyles(): void {
 /* Problems panel: floating, top-right of the editor. */
 .se-problems{position:absolute;top:8px;right:8px;z-index:25;width:280px;max-height:60%;overflow-y:auto;background:var(--se-bg);border:1px solid var(--se-border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.28);padding:4px;}
 .se-prob-empty{padding:14px;text-align:center;color:var(--se-muted);font-size:12px;}
+.se-prob-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px 8px;border-bottom:1px solid var(--se-border);margin-bottom:4px;font-size:12px;color:var(--se-muted);}
 .se-prob-row{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px;}
 .se-prob-row:hover,.se-prob-row:focus-visible{background:var(--se-head);outline:none;}
 .se-prob-idx{color:var(--se-muted);font-variant-numeric:tabular-nums;min-width:22px;text-align:right;}
