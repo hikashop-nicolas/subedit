@@ -188,7 +188,7 @@ function injectStyles(): void {
   stylesInjected = true;
   const css = `
 .se-root{--se-bg:#fff;--se-fg:#1a1a1e;--se-muted:#667;--se-border:#e2e4ea;--se-sel:#dbeafe;--se-sel-fg:#0b1220;--se-head:#f6f7f9;--se-warn:#b45309;--se-bad:#b91c1c;--se-accent:#2563eb;
-  display:flex;flex-direction:column;height:100%;min-height:0;font-family:system-ui,sans-serif;color:var(--se-fg);background:var(--se-bg);font-size:13px;}
+  display:flex;flex-direction:column;height:100%;min-height:0;position:relative;font-family:system-ui,sans-serif;color:var(--se-fg);background:var(--se-bg);font-size:13px;}
 .se-toolbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 8px;border-bottom:1px solid var(--se-border);background:var(--se-head);}
 .se-toolbar b{font-size:13px;margin-right:6px;}
 .se-toolbar .se-sp{flex:1 1 auto;}
@@ -245,7 +245,10 @@ function injectStyles(): void {
 .se-cps.bad{color:var(--se-bad);font-weight:600;}
 .se-text{white-space:pre;overflow:hidden;text-overflow:ellipsis;}
 .se-detail{flex:0 0 auto;border-top:1px solid var(--se-border);padding:8px;display:flex;flex-direction:column;gap:6px;background:var(--se-head);}
-.se-times{display:flex;gap:8px;flex-wrap:wrap;}
+.se-times{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;}
+.se-cpsinfo{margin-left:auto;font-size:11px;color:var(--se-muted);font-variant-numeric:tabular-nums;padding-bottom:4px;white-space:nowrap;}
+.se-cpsinfo.warn{color:var(--se-warn);}
+.se-cpsinfo.bad{color:var(--se-bad);font-weight:600;}
 .se-field{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--se-muted);}
 .se-field input{font:inherit;font-variant-numeric:tabular-nums;padding:3px 6px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);width:110px;}
 .se-assbox{display:flex;flex-direction:column;gap:6px;}
@@ -294,12 +297,27 @@ function injectStyles(): void {
 .se-xgroup .se-xglabel{flex-basis:100%;color:var(--se-muted);font-size:11px;}
 .se-xform input{width:56px;}
 .se-empty,.se-noprev{flex:1 1 auto;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--se-muted);}
-.se-noprev{color:#aab;}
 .se-empty h3{margin:0;color:var(--se-fg);font-size:15px;}
 .se-playerhost{flex:1 1 auto;min-height:0;width:100%;height:100%;}
 .se-timeline-wrap{flex:0 0 auto;border-top:1px solid var(--se-border);background:var(--se-head);position:relative;}
 .se-timeline{touch-action:none;cursor:grab;}
 .se-wave-status{position:absolute;top:20px;left:10px;z-index:1;font-size:11px;color:var(--se-muted);pointer-events:none;}
+/* --- polish --- */
+/* Smooth hover/selection transitions. */
+.se-btn,.se-iconbtn,.se-row,.se-tab,.se-inbtn,.se-obtn,.se-job-btn,.se-track,.se-track-x,.se-track-add{transition:background-color .12s ease,border-color .12s ease,color .12s ease,box-shadow .12s ease;}
+/* One consistent keyboard-focus ring for every interactive control. Mouse clicks don't show
+   it (:focus-visible); the cue list opts out and rings its active row instead. */
+.se-root :focus-visible{outline:2px solid var(--se-accent);outline-offset:1px;}
+.se-inner:focus-visible{outline:none;}
+.se-iconbtn:focus-visible,.se-btn:focus-visible{border-radius:6px;}
+/* Slim, theme-aware scrollbar for the cue list. */
+.se-scroll{scrollbar-width:thin;scrollbar-color:var(--se-border) transparent;}
+.se-scroll::-webkit-scrollbar{width:11px;}
+.se-scroll::-webkit-scrollbar-thumb{background:var(--se-border);border-radius:6px;border:3px solid var(--se-bg);}
+.se-scroll::-webkit-scrollbar-thumb:hover{background:var(--se-muted);}
+/* Non-blocking toast, bottom-center, auto-dismissed (no longer hijacks the cue count). */
+.se-toast{position:absolute;left:50%;bottom:18px;transform:translate(-50%,10px);z-index:30;max-width:82%;padding:8px 14px;border-radius:8px;background:var(--se-fg);color:var(--se-bg);font-size:12px;line-height:1.35;box-shadow:0 6px 20px rgba(0,0,0,.28);opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease;}
+.se-toast.on{opacity:.96;transform:translate(-50%,0);}
 @media (prefers-color-scheme: dark){
 .se-root{--se-bg:#1c1d21;--se-fg:#e6e7ea;--se-muted:#9aa0aa;--se-border:#33353b;--se-sel:#1e3a5f;--se-sel-fg:#eaf2ff;--se-head:#25272c;--se-warn:#f59e0b;--se-bad:#f87171;--se-accent:#60a5fa;}
 }
@@ -782,6 +800,10 @@ class SubtitleEditor implements SubtitleEditorHandle {
       }),
     );
     if (this.doc.format === "ass") times.appendChild(this.styleField(cue));
+    // Live reading-speed feedback for the selected cue, right-aligned in the times row.
+    this.cpsInfoEl = el("div", "se-cpsinfo");
+    times.appendChild(this.cpsInfoEl);
+    this.updateCpsInfo(cue);
     this.detailEl.appendChild(times);
     if (this.doc.format === "ass") this.detailEl.appendChild(this.assExtrasRow(cue));
 
@@ -809,8 +831,22 @@ class SubtitleEditor implements SubtitleEditorHandle {
     ta.value = cue.text;
     ta.spellcheck = false;
     this.detailTextarea = ta;
-    ta.addEventListener("input", () => this.updateCue(cue.id, { text: ta.value }, /*fromText*/ true));
+    ta.addEventListener("input", () => {
+      this.updateCue(cue.id, { text: ta.value }, /*fromText*/ true);
+      this.updateCpsInfo(cue); // text edits don't re-render the detail, so refresh the readout
+    });
     return ta;
+  }
+
+  private cpsInfoEl: HTMLElement | null = null;
+
+  // Show the selected cue's reading speed and visible-character count, coloured like the list.
+  private updateCpsInfo(cue: Cue): void {
+    if (!this.cpsInfoEl) return;
+    const c = cps(cue);
+    const chars = visibleText(cue.text).length;
+    this.cpsInfoEl.textContent = t("cpsChars", { cps: c ? c.toFixed(0) : "0", chars: String(chars) });
+    this.cpsInfoEl.className = "se-cpsinfo" + (c > CPS_BAD ? " bad" : c > CPS_WARN ? " warn" : "");
   }
 
   // --- colours (whole-cue \1c fill / \3c border / \4c shadow-or-box) --------
@@ -2617,13 +2653,22 @@ class SubtitleEditor implements SubtitleEditorHandle {
     return b;
   }
 
+  private toastEl: HTMLDivElement | null = null;
+  private toastTimer = 0;
+
+  // A non-blocking toast at the bottom of the editor. Announced politely for screen readers.
   private toast(msg: string): void {
-    // Minimal, non-blocking status via the count element; hosts can style later.
-    const prev = this.countEl.textContent;
-    this.countEl.textContent = msg;
-    setTimeout(() => {
-      this.countEl.textContent = prev;
-    }, 2500);
+    if (!this.toastEl) {
+      this.toastEl = el("div", "se-toast") as HTMLDivElement;
+      this.toastEl.setAttribute("role", "status");
+      this.toastEl.setAttribute("aria-live", "polite");
+      this.root.appendChild(this.toastEl);
+    }
+    this.toastEl.textContent = msg;
+    void this.toastEl.offsetWidth; // restart the fade-in even on a back-to-back toast
+    this.toastEl.classList.add("on");
+    window.clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => this.toastEl?.classList.remove("on"), 2600);
   }
 
   private markDirty(): void {
@@ -2648,6 +2693,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   }
   destroy(): void {
     window.clearTimeout(this.subtitleTimer);
+    window.clearTimeout(this.toastTimer);
     document.removeEventListener("keydown", this.onPosKey, true);
     document.removeEventListener("keydown", this.onClipKey, true);
     document.removeEventListener("keydown", this.onDrawKey, true);
