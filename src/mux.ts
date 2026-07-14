@@ -111,10 +111,14 @@ async function runMux(media: MuxMedia, subs: MuxSubtitle[], container: MuxContai
   });
 
   await output.start();
-  // Feed packets INTERLEAVED by timestamp across all tracks. Copying one whole track before the
-  // next forces the muxer to buffer every packet until the other tracks catch up, which on a
-  // multi-GB file exhausts memory ("Array buffer allocation failed"). Always adding the track
-  // whose next packet is earliest lets the muxer flush clusters as it goes, at low memory.
+  // Add ALL subtitle cues up front (before streaming the A/V). Subtitles are sparse and small,
+  // but the muxer can't flush a cluster until it knows there are no earlier subtitle cues still
+  // to come; if we add them last it holds every A/V cluster until the end (buffering the whole
+  // multi-GB output -> "Array buffer allocation failed"). Known up front, clusters flush freely.
+  for (const ss of subSrcs) await ss.src.add(ss.content);
+  // Feed A/V packets INTERLEAVED by timestamp across tracks. Copying one whole track before the
+  // next forces the muxer to buffer every packet until the other tracks catch up. Always adding
+  // the track whose next packet is earliest lets the muxer flush clusters as it goes, low memory.
   const heads: (EncodedPacket | null)[] = await Promise.all(copies.map((c) => c.sink.getFirstPacket()));
   const started = copies.map(() => false);
   for (;;) {
@@ -128,6 +132,5 @@ async function runMux(media: MuxMedia, subs: MuxSubtitle[], container: MuxContai
     started[best] = true;
     heads[best] = await copies[best].sink.getNextPacket(p);
   }
-  for (const ss of subSrcs) await ss.src.add(ss.content);
   await output.finalize();
 }
