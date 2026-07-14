@@ -85,20 +85,20 @@ async function runMux(media: MuxMedia, subs: MuxSubtitle[], container: MuxContai
   const output = new Output({ format, target });
 
   // Stream-copy every video / audio track (no decode/encode).
-  const copies: { sink: EncodedPacketSink; add: (p: EncodedPacket, meta?: unknown) => Promise<void>; meta: unknown }[] = [];
+  const copies: { sink: EncodedPacketSink; add: (p: EncodedPacket, meta?: unknown) => Promise<void>; close: () => void; meta: unknown }[] = [];
   for (const tr of await input.getTracks()) {
     if (tr.isVideoTrack()) {
       const codec = await tr.getCodec();
       if (!codec) continue;
       const src = new EncodedVideoPacketSource(codec);
       output.addVideoTrack(src);
-      copies.push({ sink: new EncodedPacketSink(tr), add: (p, m) => src.add(p, m as never), meta: { decoderConfig: await tr.getDecoderConfig() } });
+      copies.push({ sink: new EncodedPacketSink(tr), add: (p, m) => src.add(p, m as never), close: () => src.close(), meta: { decoderConfig: await tr.getDecoderConfig() } });
     } else if (tr.isAudioTrack()) {
       const codec = await tr.getCodec();
       if (!codec) continue;
       const src = new EncodedAudioPacketSource(codec);
       output.addAudioTrack(src);
-      copies.push({ sink: new EncodedPacketSink(tr), add: (p, m) => src.add(p, m as never), meta: { decoderConfig: await tr.getDecoderConfig() } });
+      copies.push({ sink: new EncodedPacketSink(tr), add: (p, m) => src.add(p, m as never), close: () => src.close(), meta: { decoderConfig: await tr.getDecoderConfig() } });
     }
   }
 
@@ -111,14 +111,16 @@ async function runMux(media: MuxMedia, subs: MuxSubtitle[], container: MuxContai
   });
 
   await output.start();
-  // Add ALL subtitle cues up front (before streaming the A/V). Subtitles are sparse and small,
-  // but the muxer can't flush a cluster until it knows there are no earlier subtitle cues still
-  // to come; if we add them last it holds every A/V cluster until the end (buffering the whole
-  // multi-GB output -> "Array buffer allocation failed"). Known up front, clusters flush freely.
+  // Add ALL subtitle cues up front, then CLOSE the subtitle sources. The muxer only writes
+  // blocks up to a timestamp for which EVERY open track has data; a track whose source isn't
+  // closed but has an empty queue STALLS it. Sparse subtitle tracks drain quickly, so if left
+  // open they'd stall the muxer for the whole A/V copy, buffering the entire multi-GB output in
+  // memory ("Array buffer allocation failed"). Closing them tells the muxer they're done.
   for (const ss of subSrcs) await ss.src.add(ss.content);
-  // Feed A/V packets INTERLEAVED by timestamp across tracks. Copying one whole track before the
-  // next forces the muxer to buffer every packet until the other tracks catch up. Always adding
-  // the track whose next packet is earliest lets the muxer flush clusters as it goes, low memory.
+  for (const ss of subSrcs) ss.src.close();
+  // Feed A/V packets INTERLEAVED by timestamp across tracks (adding the earliest-next first), and
+  // close each source as it runs out, so a finished track never stalls the others. This lets the
+  // muxer flush clusters as it goes, at low, bounded memory.
   const heads: (EncodedPacket | null)[] = await Promise.all(copies.map((c) => c.sink.getFirstPacket()));
   const started = copies.map(() => false);
   for (;;) {
@@ -131,6 +133,7 @@ async function runMux(media: MuxMedia, subs: MuxSubtitle[], container: MuxContai
     await copies[best].add(p, started[best] ? undefined : copies[best].meta);
     started[best] = true;
     heads[best] = await copies[best].sink.getNextPacket(p);
+    if (!heads[best]) copies[best].close(); // track exhausted; don't let it stall the muxer
   }
   await output.finalize();
 }
