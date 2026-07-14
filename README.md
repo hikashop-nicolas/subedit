@@ -1,7 +1,7 @@
 # subedit
 
-A standalone, framework-agnostic, client-side **subtitle editor** for **SRT, VTT and
-ASS/SSA**. It parses a subtitle file into an editable cue list, lets you edit timings and
+A standalone, framework-agnostic, client-side **subtitle editor** for **SRT, VTT, ASS/SSA,
+MicroDVD, LRC and TTML**. It parses a subtitle file into an editable cue list, lets you edit timings and
 text with a video/waveform preview and live CPS/duration feedback, and writes the changes
 **back into your file byte-for-byte** for well-formed files. Open a video and it becomes a
 media project with multiple subtitle tracks: it reads the embedded tracks, **transcribes**
@@ -15,7 +15,7 @@ upload, and models/media are streamed so multi-GB files never sit in RAM.
 
 No install, no sign-up, nothing to upload. Open the page and:
 
-- **Open** a subtitle file (`.srt`, `.vtt`, `.ass`, `.ssa`) to edit it, or click **New**
+- **Open** a subtitle file (`.srt`, `.vtt`, `.ass`, `.ssa`, `.sub`, `.lrc`, `.ttml`) to edit it, or click **New**
   to start one from scratch (pick the format).
 - Edit timings and text in the cue list; the detail panel shows characters-per-second and
   duration warnings as you go.
@@ -35,6 +35,9 @@ than loaded into memory.
 - **Byte-faithful round-trips.** A well-formed SRT/VTT file parses and re-serializes
   identically: line-ending flavor, BOM, VTT header and NOTE/STYLE/REGION blocks, cue
   identifiers and settings are all preserved. Edited cues are re-serialized canonically.
+- **Many formats.** SRT, VTT, ASS/SSA, MicroDVD (`.sub`), LRC lyrics and TTML/DFXP, with
+  conversion between them from the toolbar. SRT/VTT/ASS and MicroDVD round-trip faithfully;
+  LRC end times and TTML XML layout are regenerated (those formats don't preserve them).
 - **Format-aware.** SRT, VTT and ASS/SSA parse/serialize with the correct timestamp form;
   convert between them from the toolbar. ASS keeps its Script Info, styles, fonts and
   comments byte-for-byte, rebuilding only the lines you edit.

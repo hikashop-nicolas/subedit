@@ -415,10 +415,15 @@ translate mode (two-column original/translation).
   whole page session); and the transcribe/translate buttons now toast on a
   failed dialog import instead of silently doing nothing. The standalone demo
   header was cleaned up (styled Open + New-with-format buttons).
+- **Post-1.0 editor tools** DONE (2026-07-14): undo/redo (snapshot history, coalesced by
+  a 500ms window); video-timing workflow (set start/end at the playhead, play-from-cue,
+  follow-playback auto-scroll); editing power tools (merge/split cues, find-replace bar,
+  problems panel for overlaps / too-fast / over-long with click-to-jump); and more formats
+  (MicroDVD `.sub`, LRC, TTML/DFXP parse+serialize+detect+convert, SRT/VTT/ASS/MicroDVD
+  round-trip faithfully, LRC/TTML regenerate their lossy parts).
 - **Later / out of scope for now**: Web Speech / cloud ASR backends (MP4 subtitle
   extraction, progressive + fragmented, tx3g/wvtt, is DONE via codem-isoboxer),
-  MicroDVD (.sub) and other niche text formats, image-based subtitles (VobSub/PGS
-  need OCR), hard-burn subtitles, WYSIWYG ASS tag editing.
+  image-based subtitles (VobSub/PGS need OCR), hard-burn subtitles, WYSIWYG ASS tag editing.
 
 ## Risks
 

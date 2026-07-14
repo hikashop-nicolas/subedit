@@ -31,6 +31,9 @@ export {
 export { parseSrt, serializeSrt } from "./srt";
 export { parseVtt, serializeVtt } from "./vtt";
 export { parseAss, serializeAss } from "./ass";
+export { parseMicroDvd, serializeMicroDvd } from "./microdvd";
+export { parseLrc, serializeLrc } from "./lrc";
+export { parseTtml, serializeTtml } from "./ttml";
 export { parseSubtitles, serializeSubtitles, detectFormat, convertDoc } from "./subtitles";
 export { extractMp4Subtitles, type Mp4SubTrack } from "./mp4subs";
 export { muxIntoContainer, muxToFile, type MuxSubtitle, type MuxContainer, type FileWritable } from "./mux";

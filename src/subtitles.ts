@@ -5,16 +5,25 @@ import type { Cue, SubtitleDoc, SubtitleFormat } from "./cue";
 import { parseSrt, serializeSrt } from "./srt";
 import { parseVtt, serializeVtt } from "./vtt";
 import { parseAss, serializeAss, defaultAssParts, ASS_EVENT_FORMAT, DEFAULT_STYLE_FORMAT } from "./ass";
+import { parseMicroDvd, serializeMicroDvd } from "./microdvd";
+import { parseLrc, serializeLrc } from "./lrc";
+import { parseTtml, serializeTtml } from "./ttml";
 
 export function detectFormat(filename: string | undefined, sample: string): SubtitleFormat {
   const ext = (filename ?? "").toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
   if (ext === "vtt") return "vtt";
   if (ext === "srt") return "srt";
   if (ext === "ass" || ext === "ssa") return "ass";
+  if (ext === "sub") return "sub";
+  if (ext === "lrc") return "lrc";
+  if (ext === "ttml" || ext === "dfxp") return "ttml";
   // Content sniff.
   const head = sample.replace(/^﻿/, "").trimStart();
   if (/^WEBVTT(\s|$)/.test(head)) return "vtt";
   if (/^\[script info\]/i.test(head) || /^scripttype\s*:/im.test(head)) return "ass";
+  if (/<tt[\s>]/i.test(head)) return "ttml";
+  if (/^\{\d+\}\{\d+\}/.test(head)) return "sub";
+  if (/^(?:\[[a-z#]+:[^\]]*\]\s*)*\[\d{1,2}:\d{2}[.:]/i.test(head)) return "lrc";
   return "srt";
 }
 
@@ -22,12 +31,18 @@ export function parseSubtitles(text: string, filename?: string): SubtitleDoc {
   const fmt = detectFormat(filename, text.slice(0, 256));
   if (fmt === "vtt") return parseVtt(text);
   if (fmt === "ass") return parseAss(text);
+  if (fmt === "sub") return parseMicroDvd(text);
+  if (fmt === "lrc") return parseLrc(text);
+  if (fmt === "ttml") return parseTtml(text);
   return parseSrt(text);
 }
 
 export function serializeSubtitles(doc: SubtitleDoc): string {
   if (doc.format === "vtt") return serializeVtt(doc);
   if (doc.format === "ass") return serializeAss(doc);
+  if (doc.format === "sub") return serializeMicroDvd(doc);
+  if (doc.format === "lrc") return serializeLrc(doc);
+  if (doc.format === "ttml") return serializeTtml(doc);
   return serializeSrt(doc);
 }
 
@@ -48,6 +63,7 @@ export function convertDoc(doc: SubtitleDoc, target: SubtitleFormat): SubtitleDo
   next.assScriptInfo = undefined;
   next.assStylesTail = undefined;
   next.styles = undefined;
+  next.fps = target === "sub" ? doc.fps : undefined;
 
   if (target === "ass") {
     const parts = defaultAssParts(doc.eol);

@@ -508,7 +508,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
     const fmt = document.createElement("select");
     fmt.className = "se-btn";
-    for (const f of ["srt", "vtt", "ass"] as SubtitleFormat[]) {
+    for (const f of ["srt", "vtt", "ass", "sub", "lrc", "ttml"] as SubtitleFormat[]) {
       const o = document.createElement("option");
       o.value = f;
       o.textContent = f.toUpperCase();
