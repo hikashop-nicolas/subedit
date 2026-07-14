@@ -29,6 +29,9 @@ import {
   matchCues,
   replaceAllInCues,
   autoFixTiming,
+  duplicateCues,
+  pasteCues,
+  rangeIds,
   type ProblemKind,
 } from "./edit-ops";
 import { ROW_H, OVERSCAN, CPS_WARN, CPS_BAD } from "./metrics";
@@ -154,7 +157,9 @@ class SubtitleEditor implements SubtitleEditorHandle {
     if (tr) tr.doc = v;
   }
   private opts: SubtitleEditorOptions;
-  private selectedId: string | null = null;
+  private selectedId: string | null = null; // the primary (detail-edited) cue
+  private selectedIds = new Set<string>(); // the full selection (multi-select)
+  private cueClipboard: Cue[] = []; // internal copy/paste buffer
   private playingId: string | null = null;
 
   private scrollEl!: HTMLDivElement;
@@ -560,8 +565,10 @@ class SubtitleEditor implements SubtitleEditorHandle {
     row.appendChild(el("div", "se-cell se-text"));
     // Focus the list on click so the keyboard shortcuts (arrows, Insert/⌘Enter, Delete) work
     // immediately after picking a cue with the mouse.
-    row.addEventListener("click", () => {
-      this.select(cue.id);
+    row.addEventListener("click", (e) => {
+      if (e.shiftKey) this.extendSelect(cue.id);
+      else if (e.metaKey || e.ctrlKey) this.toggleSelect(cue.id);
+      else this.select(cue.id);
       this.innerEl.focus();
     });
     row.addEventListener("dblclick", () => this.seekTo(cue.startMs, true));
@@ -582,10 +589,11 @@ class SubtitleEditor implements SubtitleEditorHandle {
     const actorCell = row.querySelector<HTMLElement>(".se-actor");
     if (actorCell) actorCell.textContent = cue.assFields?.Name ?? "";
     cell("se-text").textContent = cue.text.replace(/\n/g, " ⏎ ");
-    row.classList.toggle("sel", cue.id === this.selectedId);
+    row.classList.toggle("sel", this.selectedIds.has(cue.id));
+    row.classList.toggle("primary", cue.id === this.selectedId && this.selectedIds.size > 1);
     row.classList.toggle("playing", cue.id === this.playingId);
     row.classList.toggle("commented", cue.assKind === "Comment");
-    row.setAttribute("aria-selected", String(cue.id === this.selectedId));
+    row.setAttribute("aria-selected", String(this.selectedIds.has(cue.id)));
     // A spoken description of the cue for screen readers: index, timing, and text.
     const spoken = visibleText(cue.text) || t("noCues");
     row.setAttribute("aria-label", `${index + 1}. ${formatTimestamp(cue.startMs, sep)} – ${formatTimestamp(cue.endMs, sep)}. ${spoken}`);
@@ -599,21 +607,45 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
   // --- selection + detail editor -------------------------------------------
 
+  // Single-select a cue (collapsing any multi-selection to just it).
   private select(id: string): void {
-    if (this.selectedId === id) return;
+    this.setSelection([id], id);
+  }
+
+  // Set the selection to `ids` with `primary` as the detail-edited cue. Refreshes every row
+  // whose selected state changed, and re-renders the detail for the primary.
+  private setSelection(ids: string[], primary: string): void {
     if (this.posOverlay) this.exitPosition();
     if (this.clipOverlay) this.exitClip();
     if (this.drawOverlay) this.exitDraw();
-    const prev = this.selectedId;
-    this.selectedId = id;
-    const c = this.doc.cues.find((k) => k.id === id);
+    const affected = new Set<string>([...this.selectedIds, ...ids]);
+    this.selectedIds = new Set(ids);
+    this.selectedId = primary;
+    const c = this.doc.cues.find((k) => k.id === primary);
     this.detailTab = c && /\\p[1-9]/.test(c.text) ? "drawing" : "text";
-    if (prev) this.refreshRow(prev);
-    this.refreshRow(id);
-    this.innerEl.setAttribute("aria-activedescendant", `se-opt-${id}`);
+    for (const rid of affected) this.refreshRow(rid);
+    this.innerEl.setAttribute("aria-activedescendant", `se-opt-${primary}`);
     this.scrollSelectedIntoView();
     this.renderDetail();
     this.timeline?.render();
+  }
+
+  // Cmd/Ctrl-click: toggle a cue in/out of the selection.
+  private toggleSelect(id: string): void {
+    const ids = new Set(this.selectedIds);
+    if (ids.has(id) && ids.size > 1) {
+      ids.delete(id);
+      const primary = this.selectedId === id ? [...ids][ids.size - 1] : this.selectedId!;
+      this.setSelection([...ids], primary);
+    } else {
+      ids.add(id);
+      this.setSelection([...ids], id);
+    }
+  }
+
+  // Shift-click / shift-arrow: select the range between the current primary (anchor) and id.
+  private extendSelect(id: string): void {
+    this.setSelection(rangeIds(this.doc.cues, this.selectedId, id), id);
   }
 
   private scrollSelectedIntoView(): void {
@@ -2194,17 +2226,51 @@ class SubtitleEditor implements SubtitleEditorHandle {
   }
 
   private removeCue(): void {
-    const cue = this.selectedCue();
-    if (!cue) return;
-    const i = this.doc.cues.indexOf(cue);
-    this.doc.cues.splice(i, 1);
-    this.rows.get(cue.id)?.remove();
-    this.rows.delete(cue.id);
+    if (!this.selectedIds.size) return;
+    const firstIdx = this.doc.cues.findIndex((c) => this.selectedIds.has(c.id));
+    this.doc.cues = this.doc.cues.filter((c) => !this.selectedIds.has(c.id));
     this.selectedId = null;
+    this.selectedIds.clear();
+    this.rows.clear();
+    this.innerEl.textContent = "";
     this.renderList();
-    const next = this.doc.cues[Math.min(i, this.doc.cues.length - 1)];
+    const next = this.doc.cues[Math.min(Math.max(0, firstIdx), this.doc.cues.length - 1)];
     if (next) this.select(next.id);
     else this.renderDetail();
+    this.markDirty();
+  }
+
+  // Duplicate the selected cue(s): each copy is placed right after its original, starting at
+  // the original's end. The copies become the new selection.
+  private duplicateCue(): void {
+    if (!this.selectedIds.size) return;
+    const { cues, newIds } = duplicateCues(this.doc.cues, this.selectedIds);
+    this.doc.cues = cues;
+    this.rows.clear();
+    this.innerEl.textContent = "";
+    this.renderList();
+    if (newIds.length) this.setSelection(newIds, newIds[newIds.length - 1]);
+    this.markDirty();
+  }
+
+  // Copy the selected cue(s) into the internal clipboard (deep copies), in document order.
+  private copyCues(): void {
+    const picked = this.doc.cues.filter((c) => this.selectedIds.has(c.id));
+    if (!picked.length) return;
+    this.cueClipboard = picked.map((c) => structuredClone(c));
+    this.toast(t("copiedN", { n: String(picked.length) }));
+  }
+
+  // Paste the clipboard cues after the primary selection, rebasing their times to follow it.
+  private pasteCuesFromClipboard(): void {
+    if (!this.cueClipboard.length) return;
+    const at = this.selectedId ? this.doc.cues.findIndex((c) => c.id === this.selectedId) : this.doc.cues.length - 1;
+    const { cues, newIds } = pasteCues(this.doc.cues, this.cueClipboard, at);
+    this.doc.cues = cues;
+    this.rows.clear();
+    this.innerEl.textContent = "";
+    this.renderList();
+    if (newIds.length) this.setSelection(newIds, newIds[0]);
     this.markDirty();
   }
 
@@ -2740,6 +2806,15 @@ class SubtitleEditor implements SubtitleEditorHandle {
     } else if (SHORTCUTS.removeCue.match(e)) {
       e.preventDefault();
       this.removeCue();
+    } else if (SHORTCUTS.duplicate.match(e)) {
+      e.preventDefault();
+      this.duplicateCue();
+    } else if (SHORTCUTS.copy.match(e)) {
+      e.preventDefault();
+      this.copyCues();
+    } else if (SHORTCUTS.paste.match(e)) {
+      e.preventDefault();
+      this.pasteCuesFromClipboard();
     } else if (SHORTCUTS.markIn.match(e)) {
       e.preventDefault();
       this.setCueEdge("start");
@@ -2751,10 +2826,10 @@ class SubtitleEditor implements SubtitleEditorHandle {
       this.playFromSelected();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      this.moveSelection(1);
+      this.moveSelection(1, e.shiftKey);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      this.moveSelection(-1);
+      this.moveSelection(-1, e.shiftKey);
     } else if (e.key === " ") {
       if (this.video) {
         e.preventDefault();
@@ -2764,11 +2839,13 @@ class SubtitleEditor implements SubtitleEditorHandle {
     }
   };
 
-  private moveSelection(delta: number): void {
+  private moveSelection(delta: number, extend = false): void {
     const i = this.doc.cues.findIndex((c) => c.id === this.selectedId);
     const next = Math.max(0, Math.min(this.doc.cues.length - 1, (i < 0 ? 0 : i) + delta));
     const cue = this.doc.cues[next];
-    if (cue) this.select(cue.id);
+    if (!cue) return;
+    if (extend) this.extendSelect(cue.id);
+    else this.select(cue.id);
   }
 
   // --- misc ----------------------------------------------------------------

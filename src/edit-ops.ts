@@ -1,7 +1,11 @@
 // Pure cue-list editing operations, factored out of the editor so they can be unit-tested
 // without a DOM. Each takes plain data and returns new data (no mutation of the input array).
 
-import { type Cue, type SubtitleFormat, blankCue, cps } from "./cue";
+import { type Cue, type SubtitleFormat, blankCue, cps, newCueId } from "./cue";
+
+function cloneCue(c: Cue): Cue {
+  return { ...c, id: newCueId(), assFields: c.assFields ? { ...c.assFields } : undefined };
+}
 
 // Merge the cue at index i with the one after it: join their text with a space, span the
 // combined time, and drop the second cue. Returns a new array, or null if there's no next cue.
@@ -79,6 +83,50 @@ export function findProblems(cues: Cue[], opts: { cpsBad: number; maxDurMs: numb
     if (c.endMs - c.startMs > opts.maxDurMs) out.push({ id: c.id, index: i, kind: "tooLong" });
   }
   return out;
+}
+
+// Duplicate each selected cue, inserting a copy right after it that starts at the original's
+// end (same duration/text/style). Returns the new array and the ids of the copies.
+export function duplicateCues(cues: Cue[], ids: Set<string>): { cues: Cue[]; newIds: string[] } {
+  const out: Cue[] = [];
+  const newIds: string[] = [];
+  for (const c of cues) {
+    out.push(c);
+    if (ids.has(c.id)) {
+      const dur = c.endMs - c.startMs;
+      const copy = { ...cloneCue(c), startMs: c.endMs, endMs: c.endMs + dur };
+      out.push(copy);
+      newIds.push(copy.id);
+    }
+  }
+  return { cues: out, newIds };
+}
+
+// Insert `clip` cues after `afterIndex`, rebasing their times so the first starts at the end
+// of the cue there (preserving the offsets between clip cues). Fresh ids are assigned.
+export function pasteCues(cues: Cue[], clip: Cue[], afterIndex: number): { cues: Cue[]; newIds: string[] } {
+  if (!clip.length) return { cues, newIds: [] };
+  const anchor = cues[afterIndex];
+  const base = anchor ? anchor.endMs : cues.length ? cues[cues.length - 1].endMs : 0;
+  const clipStart = clip[0].startMs;
+  const pasted = clip.map((c) => {
+    const off = c.startMs - clipStart;
+    const dur = c.endMs - c.startMs;
+    return { ...cloneCue(c), startMs: base + off, endMs: base + off + dur };
+  });
+  const out = cues.slice();
+  out.splice(afterIndex + 1, 0, ...pasted);
+  return { cues: out, newIds: pasted.map((c) => c.id) };
+}
+
+// The index range (inclusive) spanned by an anchor id and a target id, for shift-click ranges.
+export function rangeIds(cues: Cue[], anchorId: string | null, targetId: string): string[] {
+  const a = cues.findIndex((c) => c.id === anchorId);
+  const b = cues.findIndex((c) => c.id === targetId);
+  if (b < 0) return anchorId ? [anchorId] : [];
+  if (a < 0) return [targetId];
+  const [lo, hi] = a <= b ? [a, b] : [b, a];
+  return cues.slice(lo, hi + 1).map((c) => c.id);
 }
 
 export interface TimingFixOptions {

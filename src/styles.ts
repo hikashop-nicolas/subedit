@@ -57,6 +57,7 @@ export function injectStyles(): void {
 /* Keyboard focus: ring the selected cue when the list itself is focused. */
 .se-inner:focus-visible .se-row.sel{box-shadow:inset 0 0 0 2px var(--se-accent);}
 .se-row.playing{box-shadow:inset 3px 0 0 var(--se-accent);}
+.se-row.primary .se-num{color:var(--se-accent);font-weight:600;}
 .se-row.commented .se-text{opacity:.5;font-style:italic;}
 .se-row.commented .se-num::after{content:" ⊘";color:var(--se-muted);}
 .se-cell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}

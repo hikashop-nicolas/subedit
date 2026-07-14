@@ -16,9 +16,36 @@ export interface Shortcut {
 }
 
 export const SHORTCUTS: Record<
-  "addCue" | "removeCue" | "save" | "saveVideo" | "undo" | "redo" | "find" | "markIn" | "markOut" | "playCue",
+  | "addCue"
+  | "removeCue"
+  | "save"
+  | "saveVideo"
+  | "undo"
+  | "redo"
+  | "find"
+  | "markIn"
+  | "markOut"
+  | "playCue"
+  | "duplicate"
+  | "copy"
+  | "paste",
   Shortcut
 > = {
+  duplicate: {
+    label: comboLabel(MOD_LABEL, "D"),
+    aria: IS_MAC ? "Meta+D" : "Control+D",
+    match: (e) => hasMod(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "d",
+  },
+  copy: {
+    label: comboLabel(MOD_LABEL, "C"),
+    aria: IS_MAC ? "Meta+C" : "Control+C",
+    match: (e) => hasMod(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "c",
+  },
+  paste: {
+    label: comboLabel(MOD_LABEL, "V"),
+    aria: IS_MAC ? "Meta+V" : "Control+V",
+    match: (e) => hasMod(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "v",
+  },
   find: {
     label: comboLabel(MOD_LABEL, "F"),
     aria: IS_MAC ? "Meta+F" : "Control+F",

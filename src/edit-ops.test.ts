@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeCuesAt, splitCueAt, clampStart, clampEnd, findProblems, matchCues, replaceAllInCues, autoFixTiming } from "./edit-ops";
+import { mergeCuesAt, splitCueAt, clampStart, clampEnd, findProblems, matchCues, replaceAllInCues, autoFixTiming, duplicateCues, pasteCues, rangeIds } from "./edit-ops";
 import { blankCue, type Cue } from "./cue";
 
 function cue(startMs: number, endMs: number, text: string): Cue {
@@ -76,6 +76,44 @@ describe("findProblems", () => {
     expect(kinds).toContain("tooFast");
     expect(kinds).toContain("tooLong");
     expect(findProblems([cue(0, 2000, "fine")], { cpsBad: 27, maxDurMs: 7000 })).toHaveLength(0);
+  });
+});
+
+describe("duplicateCues", () => {
+  it("inserts a copy of each selected cue right after it, offset in time", () => {
+    const cues = [cue(0, 1000, "a"), cue(2000, 3000, "b")];
+    const { cues: out, newIds } = duplicateCues(cues, new Set([cues[0].id]));
+    expect(out.map((c) => c.text)).toEqual(["a", "a", "b"]);
+    expect(out[1].startMs).toBe(1000); // starts at the original's end
+    expect(out[1].endMs).toBe(2000); // same 1000ms duration
+    expect(newIds).toEqual([out[1].id]);
+    expect(out[1].id).not.toBe(cues[0].id); // fresh id
+  });
+});
+
+describe("pasteCues", () => {
+  it("rebases clip times to follow the anchor, preserving relative offsets", () => {
+    const cues = [cue(0, 1000, "x"), cue(5000, 6000, "y")];
+    const clip = [cue(100, 600, "one"), cue(800, 1000, "two")]; // offsets 0 and 700
+    const { cues: out, newIds } = pasteCues(cues, clip, 0); // after cue "x" (ends 1000)
+    expect(out.map((c) => c.text)).toEqual(["x", "one", "two", "y"]);
+    expect(out[1].startMs).toBe(1000); // base = anchor end
+    expect(out[1].endMs).toBe(1500); // +500 duration
+    expect(out[2].startMs).toBe(1700); // base + 700 offset
+    expect(newIds).toHaveLength(2);
+  });
+  it("returns the input unchanged for an empty clip", () => {
+    const cues = [cue(0, 1000, "x")];
+    expect(pasteCues(cues, [], 0).cues).toBe(cues);
+  });
+});
+
+describe("rangeIds", () => {
+  it("returns the inclusive id range regardless of direction", () => {
+    const cues = [cue(0, 1, "a"), cue(1, 2, "b"), cue(2, 3, "c"), cue(3, 4, "d")];
+    expect(rangeIds(cues, cues[1].id, cues[3].id)).toEqual([cues[1].id, cues[2].id, cues[3].id]);
+    expect(rangeIds(cues, cues[3].id, cues[1].id)).toEqual([cues[1].id, cues[2].id, cues[3].id]);
+    expect(rangeIds(cues, null, cues[0].id)).toEqual([cues[0].id]);
   });
 });
 
