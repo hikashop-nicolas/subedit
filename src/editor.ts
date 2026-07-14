@@ -154,6 +154,10 @@ const ICON = {
   setend: svgIcon('<path d="M12 2.5v11"/><path d="M3 8h6.5"/><path d="M7 5.5 9.5 8 7 10.5"/>'),
   playcue: svgIcon('<path d="M4 3.5v9l7-4.5z" fill="currentColor" stroke="none"/>'),
   follow: svgIcon('<circle cx="8" cy="8" r="2.5"/><path d="M8 2v2.5M8 11.5V14M2 8h2.5M11.5 8H14"/>'),
+  merge: svgIcon('<rect x="3" y="2.5" width="10" height="3.5" rx="1"/><rect x="3" y="10" width="10" height="3.5" rx="1"/><path d="M8 6.2v3.6M6.5 8.2 8 9.8l1.5-1.6"/>'),
+  split: svgIcon('<rect x="3" y="2.5" width="10" height="3.5" rx="1"/><rect x="3" y="10" width="10" height="3.5" rx="1"/><path d="M8 9.8V6.2M6.5 7.8 8 6.2l1.5 1.6"/>'),
+  search: svgIcon('<circle cx="7" cy="7" r="4"/><path d="M10 10l3.5 3.5"/>'),
+  problems: svgIcon('<path d="M8 2.5 14 13H2z"/><path d="M8 6.5v3M8 11v0"/>'),
 };
 
 // Keyboard shortcuts. Each is shown in its button's tooltip and matched in onKeydown. The
@@ -172,9 +176,14 @@ interface Shortcut {
   match: (e: KeyboardEvent) => boolean;
 }
 const SHORTCUTS: Record<
-  "addCue" | "removeCue" | "save" | "saveVideo" | "undo" | "redo" | "markIn" | "markOut" | "playCue",
+  "addCue" | "removeCue" | "save" | "saveVideo" | "undo" | "redo" | "find" | "markIn" | "markOut" | "playCue",
   Shortcut
 > = {
+  find: {
+    label: comboLabel(MOD_LABEL, "F"),
+    aria: IS_MAC ? "Meta+F" : "Control+F",
+    match: (e) => hasMod(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "f",
+  },
   markIn: { label: "[", aria: "[", match: (e) => e.key === "[" && !hasMod(e) && !e.altKey },
   markOut: { label: "]", aria: "]", match: (e) => e.key === "]" && !hasMod(e) && !e.altKey },
   playCue: { label: "\\", aria: "\\", match: (e) => e.key === "\\" && !hasMod(e) && !e.altKey },
@@ -352,6 +361,17 @@ function injectStyles(): void {
 /* Non-blocking toast, bottom-center, auto-dismissed (no longer hijacks the cue count). */
 .se-toast{position:absolute;left:50%;bottom:18px;transform:translate(-50%,10px);z-index:30;max-width:82%;padding:8px 14px;border-radius:8px;background:var(--se-fg);color:var(--se-bg);font-size:12px;line-height:1.35;box-shadow:0 6px 20px rgba(0,0,0,.28);opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease;}
 .se-toast.on{opacity:.96;transform:translate(-50%,0);}
+/* Find / replace bar. */
+.se-findbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 8px;border-bottom:1px solid var(--se-border);background:var(--se-head);flex-shrink:0;}
+.se-findinput{font:inherit;padding:4px 8px;border:1px solid var(--se-border);border-radius:6px;background:var(--se-bg);color:var(--se-fg);min-width:140px;}
+.se-findcount{font-size:12px;color:var(--se-muted);font-variant-numeric:tabular-nums;min-width:64px;}
+/* Problems panel: floating, top-right of the editor. */
+.se-problems{position:absolute;top:8px;right:8px;z-index:25;width:280px;max-height:60%;overflow-y:auto;background:var(--se-bg);border:1px solid var(--se-border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.28);padding:4px;}
+.se-prob-empty{padding:14px;text-align:center;color:var(--se-muted);font-size:12px;}
+.se-prob-row{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px;}
+.se-prob-row:hover,.se-prob-row:focus-visible{background:var(--se-head);outline:none;}
+.se-prob-idx{color:var(--se-muted);font-variant-numeric:tabular-nums;min-width:22px;text-align:right;}
+.se-prob-msg{color:var(--se-warn);}
 @media (prefers-color-scheme: dark){
 .se-root{--se-bg:#1c1d21;--se-fg:#e6e7ea;--se-muted:#9aa0aa;--se-border:#33353b;--se-sel:#1e3a5f;--se-sel-fg:#eaf2ff;--se-head:#25272c;--se-warn:#f59e0b;--se-bad:#f87171;--se-accent:#60a5fa;}
 }
@@ -420,6 +440,14 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private redoBtn: HTMLButtonElement | null = null;
   private followBtn: HTMLButtonElement | null = null;
   private followPlayback = true;
+  private problemsBtn: HTMLButtonElement | null = null;
+  private findBar: HTMLDivElement | null = null;
+  private findInput: HTMLInputElement | null = null;
+  private findReplaceInput: HTMLInputElement | null = null;
+  private findCountEl: HTMLSpanElement | null = null;
+  private findMatches: string[] = []; // ids of cues matching the current query
+  private findPos = -1;
+  private problemsPanel: HTMLDivElement | null = null;
 
   constructor(container: HTMLElement, input: SubtitleInput, opts: SubtitleEditorOptions) {
     this.opts = opts;
@@ -461,6 +489,11 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
     bar.appendChild(this.iconButton(ICON.add, t("addCue"), () => this.addCue(), SHORTCUTS.addCue));
     bar.appendChild(this.iconButton(ICON.remove, t("removeCue"), () => this.removeCue(), SHORTCUTS.removeCue));
+    bar.appendChild(this.iconButton(ICON.merge, t("mergeCue"), () => this.mergeCue()));
+    bar.appendChild(this.iconButton(ICON.split, t("splitCue"), () => this.splitCue()));
+    bar.appendChild(this.iconButton(ICON.search, t("findReplace"), () => this.toggleFind(), SHORTCUTS.find));
+    this.problemsBtn = this.iconButton(ICON.problems, t("problems"), () => this.toggleProblems());
+    bar.appendChild(this.problemsBtn);
     bar.appendChild(this.iconButton(ICON.shift, t("shiftTimes"), () => this.shiftTimes()));
     bar.appendChild(this.iconButton(ICON.overlaps, t("fixOverlaps"), () => this.fixOverlaps()));
 
@@ -2417,6 +2450,232 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.markDirty();
   }
 
+  // Merge the selected cue with the one after it: join their text with a space and span the
+  // combined time, then drop the second cue. Styles/fields of the first cue are kept.
+  private mergeCue(): void {
+    const cue = this.selectedCue();
+    if (!cue) return;
+    const i = this.doc.cues.indexOf(cue);
+    const next = this.doc.cues[i + 1];
+    if (!next) {
+      this.toast(t("mergeNoNext"));
+      return;
+    }
+    cue.text = `${cue.text.trimEnd()} ${next.text.trimStart()}`.trim();
+    cue.endMs = Math.max(cue.endMs, next.endMs);
+    this.doc.cues.splice(i + 1, 1);
+    this.rows.get(next.id)?.remove();
+    this.rows.delete(next.id);
+    this.renderList();
+    this.select(cue.id);
+    this.markDirty();
+  }
+
+  // Split the selected cue at the caret (or the midpoint), dividing the duration in proportion
+  // to each part's text length. ASS style/fields carry to the new second cue.
+  private splitCue(): void {
+    const cue = this.selectedCue();
+    if (!cue) return;
+    const text = cue.text;
+    const ta = this.detailTextarea;
+    let at = ta && document.activeElement === ta ? ta.selectionStart : Math.floor(text.length / 2);
+    if (at <= 0 || at >= text.length) at = Math.floor(text.length / 2);
+    if (at <= 0) {
+      this.toast(t("splitTooShort"));
+      return;
+    }
+    const first = text.slice(0, at).trimEnd();
+    const rest = text.slice(at).trimStart();
+    const total = cue.endMs - cue.startMs;
+    const frac = first.length / Math.max(1, first.length + rest.length);
+    const mid = cue.startMs + Math.max(1, Math.min(total - 1, Math.round(total * frac)));
+    const second = blankCue(mid, cue.endMs, rest);
+    if (this.doc.format === "ass") {
+      second.assKind = cue.assKind;
+      if (cue.assFields) second.assFields = { ...cue.assFields };
+    }
+    cue.text = first;
+    cue.endMs = mid;
+    const i = this.doc.cues.indexOf(cue);
+    this.doc.cues.splice(i + 1, 0, second);
+    this.renderList();
+    this.select(cue.id);
+    this.markDirty();
+  }
+
+  // --- find / replace ------------------------------------------------------
+
+  private toggleFind(): void {
+    if (this.findBar) {
+      this.closeFind();
+      return;
+    }
+    const bar = el("div", "se-findbar") as HTMLDivElement;
+    const find = document.createElement("input");
+    find.type = "text";
+    find.placeholder = t("find");
+    find.className = "se-findinput";
+    find.setAttribute("aria-label", t("find"));
+    this.findInput = find;
+    const count = el("span", "se-findcount") as HTMLSpanElement;
+    this.findCountEl = count;
+    const prev = this.button("‹", () => this.findStep(-1));
+    const next = this.button("›", () => this.findStep(1));
+    prev.className = next.className = "se-obtn";
+    prev.title = t("findPrev");
+    next.title = t("findNext");
+    const repl = document.createElement("input");
+    repl.type = "text";
+    repl.placeholder = t("replace");
+    repl.className = "se-findinput";
+    repl.setAttribute("aria-label", t("replace"));
+    this.findReplaceInput = repl;
+    const replAll = this.button(t("replaceAll"), () => this.replaceAll());
+    replAll.className = "se-obtn";
+    const close = this.button("✕", () => this.closeFind());
+    close.className = "se-obtn";
+    close.title = t("close");
+    close.setAttribute("aria-label", t("close"));
+    find.addEventListener("input", () => this.runFind(find.value));
+    find.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        this.findStep(e.shiftKey ? -1 : 1);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        this.closeFind();
+      }
+    });
+    repl.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        this.closeFind();
+      }
+    });
+    bar.append(find, count, prev, next, repl, replAll, close);
+    this.findBar = bar;
+    (this.jobStrip ?? this.trackBar).after(bar);
+    find.focus();
+    this.runFind("");
+  }
+
+  private closeFind(): void {
+    this.findBar?.remove();
+    this.findBar = null;
+    this.findInput = this.findReplaceInput = this.findCountEl = null;
+    this.findMatches = [];
+    this.findPos = -1;
+  }
+
+  private runFind(query: string): void {
+    const q = query.toLowerCase();
+    this.findMatches = q ? this.doc.cues.filter((c) => c.text.toLowerCase().includes(q)).map((c) => c.id) : [];
+    this.findPos = this.findMatches.length ? 0 : -1;
+    this.updateFindCount();
+    if (this.findPos >= 0) this.select(this.findMatches[0]);
+  }
+
+  private findStep(dir: number): void {
+    if (!this.findMatches.length) return;
+    this.findPos = (this.findPos + dir + this.findMatches.length) % this.findMatches.length;
+    this.updateFindCount();
+    this.select(this.findMatches[this.findPos]);
+  }
+
+  private updateFindCount(): void {
+    if (!this.findCountEl) return;
+    this.findCountEl.textContent = this.findMatches.length
+      ? t("findCount", { i: String(this.findPos + 1), n: String(this.findMatches.length) })
+      : this.findInput?.value
+        ? t("noMatches")
+        : "";
+  }
+
+  private replaceAll(): void {
+    const q = this.findInput?.value ?? "";
+    if (!q) return;
+    const repl = this.findReplaceInput?.value ?? "";
+    const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+    let n = 0;
+    for (const c of this.doc.cues) {
+      const next = c.text.replace(rx, repl);
+      if (next !== c.text) {
+        c.text = next;
+        n += 1;
+      }
+    }
+    if (n) {
+      this.renderList();
+      if (this.selectedId) this.refreshRow(this.selectedId);
+      this.renderDetail();
+      this.markDirty();
+    }
+    this.toast(t("replacedN", { n: String(n) }));
+    this.runFind(q);
+  }
+
+  // --- problems panel ------------------------------------------------------
+
+  private toggleProblems(): void {
+    if (this.problemsPanel) {
+      this.problemsPanel.remove();
+      this.problemsPanel = null;
+      this.problemsBtn?.classList.remove("on");
+      return;
+    }
+    const panel = el("div", "se-problems") as HTMLDivElement;
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-label", t("problems"));
+    const issues = this.computeProblems();
+    if (!issues.length) {
+      panel.appendChild(el("div", "se-prob-empty", t("noProblems")));
+    } else {
+      for (const p of issues) {
+        const row = el("div", "se-prob-row");
+        row.appendChild(el("span", "se-prob-idx", String(p.index + 1)));
+        row.appendChild(el("span", "se-prob-msg", p.msg));
+        row.tabIndex = 0;
+        const jump = () => {
+          this.select(p.id);
+          this.scrollCueIntoView(p.id);
+        };
+        row.addEventListener("click", jump);
+        row.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            jump();
+          }
+        });
+        panel.appendChild(row);
+      }
+    }
+    this.problemsPanel = panel;
+    this.problemsBtn?.classList.add("on");
+    this.root.appendChild(panel);
+    // Drop the panel just below the whole toolbar so it never covers the buttons.
+    const tb = this.root.querySelector(".se-toolbar");
+    if (tb) {
+      const b = tb.getBoundingClientRect();
+      const r = this.root.getBoundingClientRect();
+      panel.style.top = `${Math.round(b.bottom - r.top + 4)}px`;
+    }
+  }
+
+  // Detect the common subtitle issues: overlaps with the next cue, too-fast reading speed,
+  // and over-long duration. Returns them in document order, each with a jump target.
+  private computeProblems(): { id: string; index: number; msg: string }[] {
+    const out: { id: string; index: number; msg: string }[] = [];
+    const cues = this.doc.cues;
+    for (let i = 0; i < cues.length; i += 1) {
+      const c = cues[i];
+      const next = cues[i + 1];
+      if (next && c.endMs > next.startMs) out.push({ id: c.id, index: i, msg: t("probOverlap") });
+      if (cps(c) > CPS_BAD) out.push({ id: c.id, index: i, msg: t("probTooFast", { cps: cps(c).toFixed(0) }) });
+      if (c.endMs - c.startMs > 7000) out.push({ id: c.id, index: i, msg: t("probTooLong") });
+    }
+    return out;
+  }
+
   private shiftTimes(): void {
     const answer = prompt(t("shiftPrompt"), "0");
     if (answer === null) return;
@@ -2687,6 +2946,12 @@ class SubtitleEditor implements SubtitleEditorHandle {
     if (this.mediaFile && SHORTCUTS.saveVideo.match(e)) {
       e.preventDefault();
       void this.saveIntoVideo();
+      return;
+    }
+    if (SHORTCUTS.find.match(e)) {
+      e.preventDefault();
+      if (!this.findBar) this.toggleFind();
+      else this.findInput?.focus();
       return;
     }
 
