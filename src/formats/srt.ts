@@ -9,7 +9,7 @@ import {
   formatTimestamp,
   newCueId,
   parseTimestamp,
-} from "./cue";
+} from "../cue";
 
 const ARROW = "-->";
 

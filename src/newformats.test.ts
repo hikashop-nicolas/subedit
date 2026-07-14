@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { parseMicroDvd, serializeMicroDvd } from "./microdvd";
-import { parseLrc, serializeLrc } from "./lrc";
-import { parseTtml, serializeTtml } from "./ttml";
-import { parseSubtitles, detectFormat } from "./subtitles";
+import { parseMicroDvd, serializeMicroDvd } from "./formats/microdvd";
+import { parseLrc, serializeLrc } from "./formats/lrc";
+import { parseTtml, serializeTtml } from "./formats/ttml";
+import { parseSubtitles, detectFormat } from "./formats";
 
 describe("MicroDVD (.sub)", () => {
   const SUB = ["{1}{1}25", "{25}{75}Hello, world.", "{100}{150}Line one|Line two"].join("\n");

@@ -38,8 +38,8 @@ import { ROW_H, OVERSCAN, CPS_WARN, CPS_BAD } from "./metrics";
 import { ICON } from "./icons";
 import { SHORTCUTS, type Shortcut } from "./shortcuts";
 import { injectStyles } from "./styles";
-import { parseSubtitles, serializeSubtitles, convertDoc } from "./subtitles";
-import { styleNames, assColorToHex, makeDefaultStyle, uniqueStyleName, getPlayRes, embeddedFontNames } from "./ass";
+import { parseSubtitles, serializeSubtitles, convertDoc } from "./formats";
+import { styleNames, assColorToHex, makeDefaultStyle, uniqueStyleName, getPlayRes, embeddedFontNames } from "./formats/ass";
 import { openStyleEditor, openScriptProperties } from "./styles-editor";
 import { openKaraoke } from "./karaoke";
 import { setLocale, t, alignmentOptions } from "./i18n";
@@ -271,10 +271,24 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
     const fmt = document.createElement("select");
     fmt.className = "se-btn";
-    for (const f of ["srt", "vtt", "ass", "sub", "lrc", "ttml"] as SubtitleFormat[]) {
+    const FORMAT_LABELS: Record<SubtitleFormat, string> = {
+      srt: "SRT",
+      vtt: "VTT",
+      ass: "ASS",
+      sub: "MicroDVD",
+      lrc: "LRC",
+      ttml: "TTML",
+      sbv: "SBV",
+      subviewer: "SubViewer",
+      sami: "SAMI",
+      mpl2: "MPL2",
+      ytjson: "YouTube JSON",
+      spruce: "Spruce STL",
+    };
+    for (const f of Object.keys(FORMAT_LABELS) as SubtitleFormat[]) {
       const o = document.createElement("option");
       o.value = f;
-      o.textContent = f.toUpperCase();
+      o.textContent = FORMAT_LABELS[f];
       fmt.appendChild(o);
     }
     fmt.value = this.doc.format;

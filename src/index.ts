@@ -28,13 +28,19 @@ export {
   formatAssTime,
   sortCues,
 } from "./cue";
-export { parseSrt, serializeSrt } from "./srt";
-export { parseVtt, serializeVtt } from "./vtt";
-export { parseAss, serializeAss } from "./ass";
-export { parseMicroDvd, serializeMicroDvd } from "./microdvd";
-export { parseLrc, serializeLrc } from "./lrc";
-export { parseTtml, serializeTtml } from "./ttml";
-export { parseSubtitles, serializeSubtitles, detectFormat, convertDoc } from "./subtitles";
+export { parseSrt, serializeSrt } from "./formats/srt";
+export { parseVtt, serializeVtt } from "./formats/vtt";
+export { parseAss, serializeAss } from "./formats/ass";
+export { parseMicroDvd, serializeMicroDvd } from "./formats/microdvd";
+export { parseLrc, serializeLrc } from "./formats/lrc";
+export { parseTtml, serializeTtml } from "./formats/ttml";
+export { parseSbv, serializeSbv } from "./formats/sbv";
+export { parseMpl2, serializeMpl2 } from "./formats/mpl2";
+export { parseSubViewer, serializeSubViewer } from "./formats/subviewer";
+export { parseSami, serializeSami } from "./formats/sami";
+export { parseYtJson, serializeYtJson } from "./formats/youtube";
+export { parseSpruce, serializeSpruce } from "./formats/spruce";
+export { parseSubtitles, serializeSubtitles, detectFormat, convertDoc } from "./formats";
 export { extractMp4Subtitles, type Mp4SubTrack } from "./mp4subs";
 export { muxIntoContainer, muxToFile, type MuxSubtitle, type MuxContainer, type FileWritable } from "./mux";
 // Automatic transcription (Whisper). Loaded lazily; transformers.js stays out of the base

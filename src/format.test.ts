@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { parseSrt, serializeSrt } from "./srt";
-import { parseVtt, serializeVtt } from "./vtt";
-import { parseAss, serializeAss } from "./ass";
-import { parseSubtitles, serializeSubtitles, detectFormat, convertDoc } from "./subtitles";
+import { parseSrt, serializeSrt } from "./formats/srt";
+import { parseVtt, serializeVtt } from "./formats/vtt";
+import { parseAss, serializeAss } from "./formats/ass";
+import { parseSubtitles, serializeSubtitles, detectFormat, convertDoc } from "./formats";
 import { parseTimestamp, formatTimestamp, formatAssTime, cps, visibleText } from "./cue";
 
 // Golden fixtures are canonically formatted so parse -> serialize is byte-identical.

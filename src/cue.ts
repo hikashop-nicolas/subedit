@@ -4,7 +4,19 @@
 // NOTE/STYLE/REGION blocks, cue identifiers and settings) that a well-formed file
 // round-trips byte-for-byte. Edited cues are re-serialized in canonical form.
 
-export type SubtitleFormat = "srt" | "vtt" | "ass" | "sub" | "lrc" | "ttml";
+export type SubtitleFormat =
+  | "srt"
+  | "vtt"
+  | "ass"
+  | "sub"
+  | "lrc"
+  | "ttml"
+  | "sbv"
+  | "subviewer"
+  | "sami"
+  | "mpl2"
+  | "ytjson"
+  | "spruce";
 
 export interface Cue {
   // Ephemeral id for the UI (list keys, selection). NOT persisted to the file.

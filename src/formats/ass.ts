@@ -16,8 +16,8 @@ import {
   formatAssTime,
   newCueId,
   parseTimestamp,
-} from "./cue";
-import { parseEmbeddedFonts } from "./fonts";
+} from "../cue";
+import { parseEmbeddedFonts } from "../fonts";
 
 const DEFAULT_EVENT_FORMAT = ["Layer", "Start", "End", "Style", "Name", "MarginL", "MarginR", "MarginV", "Effect", "Text"];
 export const DEFAULT_STYLE_FORMAT = [

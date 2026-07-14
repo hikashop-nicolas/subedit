@@ -3,7 +3,7 @@
 // an offset like "12.5s", or seconds), with "<br/>" as a line break. XML is not byte-
 // preservable here, so serialize regenerates a clean, minimal TTML document. xml:lang is kept.
 
-import { type Cue, type SubtitleDoc, detectEol, newCueId } from "./cue";
+import { type Cue, type SubtitleDoc, detectEol, newCueId } from "../cue";
 
 const P_RE = /<p\b([^>]*)>([\s\S]*?)<\/p>/gi;
 

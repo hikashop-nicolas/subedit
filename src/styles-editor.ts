@@ -4,7 +4,7 @@
 // plus Duplicate and Delete. Fields it doesn't surface are preserved on the style object.
 
 import type { AssStyle, SubtitleDoc } from "./cue";
-import { assColorToHex, hexToAssColor, makeDefaultStyle, uniqueStyleName, embeddedFontNames } from "./ass";
+import { assColorToHex, hexToAssColor, makeDefaultStyle, uniqueStyleName, embeddedFontNames } from "./formats/ass";
 import { t, alignmentOptions } from "./i18n";
 
 export interface StylesEditorHost {

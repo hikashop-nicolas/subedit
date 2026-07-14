@@ -3,7 +3,7 @@
 // short tail). Metadata and other bracket-tag header lines are preserved verbatim. End times
 // are implicit in LRC, so a round-trip is faithful in text and starts but not in end times.
 
-import { type Cue, type SubtitleDoc, detectEol, newCueId } from "./cue";
+import { type Cue, type SubtitleDoc, detectEol, newCueId } from "../cue";
 
 const TIME_RE = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
 const META_RE = /^\[[a-z#]+:.*\]$/i; // [ar:...], [ti:...], [offset:...], etc.

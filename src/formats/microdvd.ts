@@ -3,7 +3,7 @@
 // converted with the file's frame rate: a leading "{1}{1}<fps>" entry declares it, else a
 // common default is assumed. A file whose fps round-trips (declared or not) is frame-exact.
 
-import { type Cue, type SubtitleDoc, detectEol, newCueId } from "./cue";
+import { type Cue, type SubtitleDoc, detectEol, newCueId } from "../cue";
 
 const DEFAULT_FPS = 23.976;
 const LINE_RE = /^\{(\d+)\}\{(\d+)\}(.*)$/;
