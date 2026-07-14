@@ -162,12 +162,17 @@ export function injectStyles(): void {
 @media (max-width: 680px){
 .se-body{flex-direction:column;}
 .se-left{flex:1 1 auto;min-height:0;border-right:none;border-bottom:1px solid var(--se-border);}
-.se-right{flex:0 0 38vh;min-height:150px;}
+/* No video: collapse the preview to just its "load" button so the list/detail get the space.
+   With a video, give it a real slice. */
+.se-right{flex:0 0 auto;min-height:0;}
+.se-noprev{padding:10px;gap:6px;}
+.se-noprev>div{display:none;}
+.se-has-media .se-right{flex:0 0 38vh;min-height:150px;}
 .se-listhead,.se-row,.se-ass .se-listhead,.se-ass .se-row{grid-template-columns:34px 88px 88px 1fr;}
 .se-dur,.se-cps,.se-actor{display:none;}
 .se-times{gap:6px;}
 .se-field input{width:82px;}
-.se-detail{max-height:42vh;overflow-y:auto;}
+.se-detail{max-height:52%;overflow-y:auto;flex-shrink:0;}
 .se-detail textarea{min-height:44px;}
 .se-problems{width:auto;left:8px;right:8px;}
 }

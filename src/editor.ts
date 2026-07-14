@@ -2634,6 +2634,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   // --- preview (minimal; upgraded to the mediaplay embed in a later phase) --
 
   private renderPreviewPlaceholder(): void {
+    this.root.classList.remove("se-has-media"); // no video: the preview may collapse on narrow
     this.rightEl.textContent = "";
     const box = el("div", "se-noprev");
     box.appendChild(el("div", "", t("noVideo")));
@@ -2666,6 +2667,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     if (this.clipOverlay) this.exitClip();
     if (this.drawOverlay) this.exitDraw();
     this.rightEl.textContent = "";
+    this.root.classList.add("se-has-media"); // a real preview now: give it height on narrow
     const host = el("div", "se-playerhost") as HTMLDivElement;
     this.rightEl.appendChild(host);
     this.mediaFile = file;

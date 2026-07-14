@@ -4,7 +4,6 @@ const editorEl = document.getElementById("editor")!;
 const fileInput = document.getElementById("file") as HTMLInputElement;
 const openBtn = document.getElementById("open") as HTMLButtonElement;
 const newBtn = document.getElementById("new") as HTMLButtonElement;
-const newFmt = document.getElementById("newfmt") as HTMLSelectElement;
 let handle: SubtitleEditorHandle | null = null;
 
 function open(text: string, filename: string): void {
@@ -24,13 +23,9 @@ fileInput.addEventListener("change", async () => {
   fileInput.value = ""; // let the same file be re-opened
 });
 
-// New: create an empty document in the format chosen in the dropdown. subedit detects the
-// format from the extension; ASS/SSA scaffold their headers on the first cue.
-const BLANK: Record<string, string> = { srt: "", vtt: "WEBVTT\n\n", ass: "", ssa: "" };
-newBtn.addEventListener("click", () => {
-  const fmt = newFmt.value;
-  open(BLANK[fmt] ?? "", `untitled.${fmt}`);
-});
+// New: create a blank SubRip document. The format is then chosen/changed from the editor's
+// own toolbar format switcher (the single source of truth for the document's format).
+newBtn.addEventListener("click", () => open("", "untitled.srt"));
 
 // A small sample so the demo shows something on load.
 const SAMPLE = [
