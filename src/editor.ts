@@ -1898,14 +1898,26 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
   // Auto-transcription: lazily load the transcribe UI (which pulls in transformers.js) and
   // open the dialog, wired to the loaded media and cue insertion.
-  private openTranscribe(): void {
-    void import("./transcribe/ui").then(({ openTranscribeDialog }) => {
-      openTranscribeDialog({
-        mediaFile: () => this.mediaFile,
-        hasCues: () => this.doc.cues.length > 0,
-        onResult: (cues, mode) => this.insertTranscribedCues(cues, mode),
-      });
+  // Lazily load the transcribe/translate dialog module. A dynamic import can fail transiently
+  // (a dev-server dependency re-optimize race, a network hiccup) and would otherwise leave the
+  // toolbar button doing nothing with no feedback; surface it as a toast instead of silence.
+  private loadTranscribeUi(): Promise<typeof import("./transcribe/ui")> {
+    return import("./transcribe/ui").catch((e) => {
+      this.toast(t("dialogLoadFailed"));
+      throw e;
     });
+  }
+
+  private openTranscribe(): void {
+    void this.loadTranscribeUi()
+      .then(({ openTranscribeDialog }) => {
+        openTranscribeDialog({
+          mediaFile: () => this.mediaFile,
+          hasCues: () => this.doc.cues.length > 0,
+          onResult: (cues, mode) => this.insertTranscribedCues(cues, mode),
+        });
+      })
+      .catch(() => {});
   }
 
   private activeTrack(): Track {
@@ -1985,13 +1997,15 @@ class SubtitleEditor implements SubtitleEditorHandle {
     // translated, tags and breaks are preserved), skip drawing cues, and translate each unique
     // run string once, fanning the result out to every cue that shares it.
     const plan = buildTranslationPlan(source.doc.cues.map((c) => c.text));
-    void import("./transcribe/ui").then(({ openTranslateDialog }) => {
-      openTranslateDialog({
-        cueTexts: () => plan.uniqueTexts,
-        sourceLanguage: () => source.language,
-        onStart: (opts, targetCode, targetLabel) => this.startTranslateJob(source, plan, opts, targetCode, targetLabel),
-      });
-    });
+    void this.loadTranscribeUi()
+      .then(({ openTranslateDialog }) => {
+        openTranslateDialog({
+          cueTexts: () => plan.uniqueTexts,
+          sourceLanguage: () => source.language,
+          onStart: (opts, targetCode, targetLabel) => this.startTranslateJob(source, plan, opts, targetCode, targetLabel),
+        });
+      })
+      .catch(() => {});
   }
 
   // Create the target track immediately (cloning the source timing/styles, cues still holding
