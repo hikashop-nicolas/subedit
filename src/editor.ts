@@ -19,6 +19,17 @@ import {
   sortCues,
   visibleText,
 } from "./cue";
+import { History } from "./history";
+import {
+  mergeCuesAt,
+  splitCueAt,
+  clampStart,
+  clampEnd,
+  findProblems,
+  matchCues,
+  replaceAllInCues,
+  type ProblemKind,
+} from "./edit-ops";
 import { parseSubtitles, serializeSubtitles, convertDoc } from "./subtitles";
 import { styleNames, assColorToHex, makeDefaultStyle, uniqueStyleName, getPlayRes, embeddedFontNames } from "./ass";
 import { openStyleEditor, openScriptProperties } from "./styles-editor";
@@ -431,9 +442,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
   // Undo/redo. The whole editable model (all tracks + selection) is snapshotted; edits within
   // a short window coalesce into one step (so typing a word is one undo, not one per key).
-  private undoStack: HistorySnap[] = [];
-  private redoStack: HistorySnap[] = [];
-  private histBaseline: HistorySnap | null = null;
+  // Snapshots are immutable (restore clones out), so History's clone can be identity.
+  private history = new History<HistorySnap>((s) => s, HIST_MAX);
   private histTimer = 0;
   private restoring = false;
   private undoBtn: HTMLButtonElement | null = null;
@@ -469,7 +479,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.renderDetail();
     if (this.doc.cues.length) this.select(this.doc.cues[0].id);
 
-    this.histBaseline = this.snapshot(); // the loaded document is the initial undo baseline
+    this.history.reset(this.snapshot()); // the loaded document is the initial undo baseline
     this.root.addEventListener("keydown", this.onKeydown);
   }
 
@@ -2455,17 +2465,14 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private mergeCue(): void {
     const cue = this.selectedCue();
     if (!cue) return;
-    const i = this.doc.cues.indexOf(cue);
-    const next = this.doc.cues[i + 1];
-    if (!next) {
+    const merged = mergeCuesAt(this.doc.cues, this.doc.cues.indexOf(cue));
+    if (!merged) {
       this.toast(t("mergeNoNext"));
       return;
     }
-    cue.text = `${cue.text.trimEnd()} ${next.text.trimStart()}`.trim();
-    cue.endMs = Math.max(cue.endMs, next.endMs);
-    this.doc.cues.splice(i + 1, 1);
-    this.rows.get(next.id)?.remove();
-    this.rows.delete(next.id);
+    this.doc.cues = merged;
+    this.rows.clear();
+    this.innerEl.textContent = "";
     this.renderList();
     this.select(cue.id);
     this.markDirty();
@@ -2476,30 +2483,18 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private splitCue(): void {
     const cue = this.selectedCue();
     if (!cue) return;
-    const text = cue.text;
     const ta = this.detailTextarea;
-    let at = ta && document.activeElement === ta ? ta.selectionStart : Math.floor(text.length / 2);
-    if (at <= 0 || at >= text.length) at = Math.floor(text.length / 2);
-    if (at <= 0) {
+    const caret = ta && document.activeElement === ta ? ta.selectionStart : -1;
+    const res = splitCueAt(this.doc.cues, this.doc.cues.indexOf(cue), caret, this.doc.format);
+    if (!res) {
       this.toast(t("splitTooShort"));
       return;
     }
-    const first = text.slice(0, at).trimEnd();
-    const rest = text.slice(at).trimStart();
-    const total = cue.endMs - cue.startMs;
-    const frac = first.length / Math.max(1, first.length + rest.length);
-    const mid = cue.startMs + Math.max(1, Math.min(total - 1, Math.round(total * frac)));
-    const second = blankCue(mid, cue.endMs, rest);
-    if (this.doc.format === "ass") {
-      second.assKind = cue.assKind;
-      if (cue.assFields) second.assFields = { ...cue.assFields };
-    }
-    cue.text = first;
-    cue.endMs = mid;
-    const i = this.doc.cues.indexOf(cue);
-    this.doc.cues.splice(i + 1, 0, second);
+    this.doc.cues = res.cues;
+    this.rows.clear();
+    this.innerEl.textContent = "";
     this.renderList();
-    this.select(cue.id);
+    this.select(res.firstId);
     this.markDirty();
   }
 
@@ -2568,8 +2563,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   }
 
   private runFind(query: string): void {
-    const q = query.toLowerCase();
-    this.findMatches = q ? this.doc.cues.filter((c) => c.text.toLowerCase().includes(q)).map((c) => c.id) : [];
+    this.findMatches = matchCues(this.doc.cues, query);
     this.findPos = this.findMatches.length ? 0 : -1;
     this.updateFindCount();
     if (this.findPos >= 0) this.select(this.findMatches[0]);
@@ -2595,15 +2589,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     const q = this.findInput?.value ?? "";
     if (!q) return;
     const repl = this.findReplaceInput?.value ?? "";
-    const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
-    let n = 0;
-    for (const c of this.doc.cues) {
-      const next = c.text.replace(rx, repl);
-      if (next !== c.text) {
-        c.text = next;
-        n += 1;
-      }
-    }
+    const n = replaceAllInCues(this.doc.cues, q, repl);
     if (n) {
       this.renderList();
       if (this.selectedId) this.refreshRow(this.selectedId);
@@ -2661,19 +2647,18 @@ class SubtitleEditor implements SubtitleEditorHandle {
     }
   }
 
-  // Detect the common subtitle issues: overlaps with the next cue, too-fast reading speed,
-  // and over-long duration. Returns them in document order, each with a jump target.
+  // Localize the pure problem list (findProblems) into rows the panel renders.
   private computeProblems(): { id: string; index: number; msg: string }[] {
-    const out: { id: string; index: number; msg: string }[] = [];
-    const cues = this.doc.cues;
-    for (let i = 0; i < cues.length; i += 1) {
-      const c = cues[i];
-      const next = cues[i + 1];
-      if (next && c.endMs > next.startMs) out.push({ id: c.id, index: i, msg: t("probOverlap") });
-      if (cps(c) > CPS_BAD) out.push({ id: c.id, index: i, msg: t("probTooFast", { cps: cps(c).toFixed(0) }) });
-      if (c.endMs - c.startMs > 7000) out.push({ id: c.id, index: i, msg: t("probTooLong") });
-    }
-    return out;
+    const msgFor: Record<ProblemKind, (cps?: number) => string> = {
+      overlap: () => t("probOverlap"),
+      tooFast: (c) => t("probTooFast", { cps: (c ?? 0).toFixed(0) }),
+      tooLong: () => t("probTooLong"),
+    };
+    return findProblems(this.doc.cues, { cpsBad: CPS_BAD, maxDurMs: 7000 }).map((p) => ({
+      id: p.id,
+      index: p.index,
+      msg: msgFor[p.kind](p.cps),
+    }));
   }
 
   private shiftTimes(): void {
@@ -2902,8 +2887,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
       return;
     }
     const ms = Math.round(this.video.currentTime * 1000);
-    if (which === "start") this.updateCue(cue.id, { startMs: Math.min(ms, cue.endMs - 1) });
-    else this.updateCue(cue.id, { endMs: Math.max(ms, cue.startMs + 1) });
+    if (which === "start") this.updateCue(cue.id, { startMs: clampStart(cue, ms) });
+    else this.updateCue(cue.id, { endMs: clampEnd(cue, ms) });
   }
 
   private playFromSelected(): void {
@@ -3079,20 +3064,14 @@ class SubtitleEditor implements SubtitleEditorHandle {
     };
   }
 
-  // Called from markDirty on every edit. The first edit after a quiet period records the
-  // pre-edit baseline; a 500ms timer commits the group so rapid edits (typing) merge into one.
+  // Called from markDirty on every edit. begin() records the pre-edit baseline once per group;
+  // a 500ms timer commits the group so rapid edits (typing) merge into one undo step.
   private scheduleHistory(): void {
     if (this.restoring) return;
-    if (!this.histTimer) {
-      if (this.histBaseline) {
-        this.undoStack.push(this.histBaseline);
-        if (this.undoStack.length > HIST_MAX) this.undoStack.shift();
-      }
-      this.redoStack = [];
-    }
+    this.history.begin();
     window.clearTimeout(this.histTimer);
     this.histTimer = window.setTimeout(() => {
-      this.histBaseline = this.snapshot();
+      this.history.commit(this.snapshot());
       this.histTimer = 0;
       this.updateHistoryButtons();
     }, 500);
@@ -3100,36 +3079,28 @@ class SubtitleEditor implements SubtitleEditorHandle {
   }
 
   private undo(): void {
-    if (this.histTimer) {
-      window.clearTimeout(this.histTimer);
-      this.histTimer = 0;
-    }
-    const prev = this.undoStack.pop();
+    window.clearTimeout(this.histTimer);
+    this.histTimer = 0;
+    const prev = this.history.undo(this.snapshot());
     if (!prev) return;
-    this.redoStack.push(this.snapshot());
     this.restoreSnap(prev);
-    this.histBaseline = prev;
     this.updateHistoryButtons();
   }
 
   private redo(): void {
-    if (this.histTimer) {
-      window.clearTimeout(this.histTimer);
-      this.histTimer = 0;
-    }
-    const next = this.redoStack.pop();
+    window.clearTimeout(this.histTimer);
+    this.histTimer = 0;
+    const next = this.history.redo(this.snapshot());
     if (!next) return;
-    this.undoStack.push(this.snapshot());
     this.restoreSnap(next);
-    this.histBaseline = next;
     this.updateHistoryButtons();
   }
 
   private canUndo(): boolean {
-    return this.undoStack.length > 0;
+    return this.history.canUndo();
   }
   private canRedo(): boolean {
-    return this.redoStack.length > 0;
+    return this.history.canRedo();
   }
 
   private restoreSnap(snap: HistorySnap): void {
