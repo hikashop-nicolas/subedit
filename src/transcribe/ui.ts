@@ -65,9 +65,9 @@ function injectCss(): void {
 
 export function openTranscribeDialog(host: TranscribeHost): void {
   injectCss();
-  // The loaded media stays on disk; read it into memory only when transcription actually runs.
+  // The loaded media (or a file picked here) stays on disk; the decoder streams it from the Blob.
   const media: File | null = host.mediaFile();
-  let bytes: Uint8Array | null = null;
+  let picked: File | null = null;
   let run: WhisperRun | null = null;
 
   const back = document.createElement("div");
@@ -97,9 +97,8 @@ export function openTranscribeDialog(host: TranscribeHost): void {
     const file = document.createElement("input");
     file.type = "file";
     file.accept = "audio/*,video/*";
-    file.addEventListener("change", async () => {
-      const f = file.files?.[0];
-      if (f) bytes = new Uint8Array(await f.arrayBuffer());
+    file.addEventListener("change", () => {
+      picked = file.files?.[0] ?? null;
     });
     fileLabel.appendChild(file);
     body.appendChild(fileLabel);
@@ -217,8 +216,8 @@ export function openTranscribeDialog(host: TranscribeHost): void {
 
   startBtn.addEventListener("click", async () => {
     err.textContent = "";
-    if (!bytes && media) bytes = new Uint8Array(await media.arrayBuffer()); // read the file now
-    if (!bytes) {
+    const src = media ?? picked;
+    if (!src) {
       err.textContent = t("asrNeedMedia");
       return;
     }
@@ -230,7 +229,7 @@ export function openTranscribeDialog(host: TranscribeHost): void {
       setBar(0);
       let audio: Float32Array;
       try {
-        audio = await decodeToMono16k(bytes.slice().buffer);
+        audio = await decodeToMono16k(src); // streams from disk; handles MKV + Dolby via mediaplay
       } catch {
         throw new Error(t("asrDecodeError"));
       }

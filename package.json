@@ -30,7 +30,7 @@
     "@huggingface/transformers": "^4.2.0",
     "codem-isoboxer": "^0.3.10",
     "mediabunny": "github:hikashop-nicolas/mediabunny#113b0f2",
-    "mediaplay": "github:hikashop-nicolas/mediaplay#d536d09"
+    "mediaplay": "github:hikashop-nicolas/mediaplay#5108420"
   },
   "devDependencies": {
     "typescript": "^6.0.3",
