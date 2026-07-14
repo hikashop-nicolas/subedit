@@ -562,13 +562,14 @@ class SubtitleEditor implements SubtitleEditorHandle {
   // Build the list header, adding an Actor column for ASS.
   private renderListHead(): void {
     this.headEl.textContent = "";
+    // Match the row cells' classes so responsive rules can hide the same columns in both.
     this.headEl.appendChild(el("div", "se-num", t("colIndex")));
-    this.headEl.appendChild(el("div", "", t("colStart")));
-    this.headEl.appendChild(el("div", "", t("colEnd")));
-    this.headEl.appendChild(el("div", "", t("colDuration")));
-    this.headEl.appendChild(el("div", "", t("colCps")));
-    if (this.doc.format === "ass") this.headEl.appendChild(el("div", "", t("actor")));
-    this.headEl.appendChild(el("div", "", t("colText")));
+    this.headEl.appendChild(el("div", "se-start", t("colStart")));
+    this.headEl.appendChild(el("div", "se-end", t("colEnd")));
+    this.headEl.appendChild(el("div", "se-dur", t("colDuration")));
+    this.headEl.appendChild(el("div", "se-cps", t("colCps")));
+    if (this.doc.format === "ass") this.headEl.appendChild(el("div", "se-actor", t("actor")));
+    this.headEl.appendChild(el("div", "se-text", t("colText")));
   }
 
   private makeRow(cue: Cue): HTMLDivElement {

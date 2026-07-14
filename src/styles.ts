@@ -152,6 +152,20 @@ export function injectStyles(): void {
 .se-prob-row:hover,.se-prob-row:focus-visible{background:var(--se-head);outline:none;}
 .se-prob-idx{color:var(--se-muted);font-variant-numeric:tabular-nums;min-width:22px;text-align:right;}
 .se-prob-msg{color:var(--se-warn);}
+/* Narrow screens (phones, split panes): stack the preview under the list+detail instead of
+   side-by-side, and drop the duration/CPS/actor columns so the text column stays usable. */
+@media (max-width: 680px){
+.se-body{flex-direction:column;}
+.se-left{flex:1 1 auto;min-height:0;border-right:none;border-bottom:1px solid var(--se-border);}
+.se-right{flex:0 0 38vh;min-height:150px;}
+.se-listhead,.se-row,.se-ass .se-listhead,.se-ass .se-row{grid-template-columns:34px 88px 88px 1fr;}
+.se-dur,.se-cps,.se-actor{display:none;}
+.se-times{gap:6px;}
+.se-field input{width:82px;}
+.se-detail{max-height:42vh;overflow-y:auto;}
+.se-detail textarea{min-height:44px;}
+.se-problems{width:auto;left:8px;right:8px;}
+}
 @media (prefers-color-scheme: dark){
 .se-root{--se-bg:#1c1d21;--se-fg:#e6e7ea;--se-muted:#9aa0aa;--se-border:#33353b;--se-sel:#1e3a5f;--se-sel-fg:#eaf2ff;--se-head:#25272c;--se-warn:#f59e0b;--se-bad:#f87171;--se-accent:#60a5fa;}
 }
