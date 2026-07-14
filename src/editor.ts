@@ -17,6 +17,7 @@ import {
   newCueId,
   parseTimestamp,
   sortCues,
+  visibleText,
 } from "./cue";
 import { parseSubtitles, serializeSubtitles, convertDoc } from "./subtitles";
 import { styleNames, assColorToHex, makeDefaultStyle, uniqueStyleName, getPlayRes, embeddedFontNames } from "./ass";
@@ -140,6 +141,47 @@ const ICON = {
   savevideo: svgIcon('<rect x="2" y="3" width="12" height="8.5" rx="1"/><path d="M2 5.5h12M5 3v2.5M11 3v2.5" opacity="0.6"/><path d="M8 13v0M6.5 12l1.5 1.5 1.5-1.5"/>'),
 };
 
+// Keyboard shortcuts. Each is shown in its button's tooltip and matched in onKeydown. The
+// label is what the tooltip shows (Mac uses the command symbol, other platforms spell the
+// modifiers); `aria` is the ARIA key-name form for aria-keyshortcuts so assistive tech can
+// announce it. Navigation (arrows) and play/pause (space) are handled inline in onKeydown.
+const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || "");
+const MOD_LABEL = IS_MAC ? "⌘" : "Ctrl"; // ⌘ / Ctrl
+const SHIFT_LABEL = IS_MAC ? "⇧" : "Shift"; // ⇧ / Shift
+const comboLabel = (...parts: string[]): string => (IS_MAC ? parts.join("") : parts.join("+"));
+const hasMod = (e: KeyboardEvent): boolean => e.ctrlKey || e.metaKey;
+
+interface Shortcut {
+  label: string; // shown in the tooltip, e.g. "⌘S" or "Ctrl+S"
+  aria: string; // ARIA key names for aria-keyshortcuts, e.g. "Control+S"
+  match: (e: KeyboardEvent) => boolean;
+}
+const SHORTCUTS: Record<"addCue" | "removeCue" | "save" | "saveVideo", Shortcut> = {
+  // Insert has no key on most Macs, so accept Cmd/Ctrl+Enter too and show the fitting label.
+  addCue: {
+    label: IS_MAC ? comboLabel(MOD_LABEL, "↩") : "Insert", // ⌘↩ on Mac, Insert elsewhere
+    aria: IS_MAC ? "Meta+Enter" : "Insert",
+    match: (e) =>
+      (e.key === "Insert" && !hasMod(e) && !e.altKey) || (hasMod(e) && !e.shiftKey && !e.altKey && e.key === "Enter"),
+  },
+  // Delete on Windows/Linux; on a Mac the "delete" key reports Backspace, so accept both.
+  removeCue: {
+    label: "Delete",
+    aria: IS_MAC ? "Backspace" : "Delete",
+    match: (e) => (e.key === "Delete" || e.key === "Backspace") && !hasMod(e) && !e.altKey,
+  },
+  save: {
+    label: comboLabel(MOD_LABEL, "S"),
+    aria: IS_MAC ? "Meta+S" : "Control+S",
+    match: (e) => hasMod(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s",
+  },
+  saveVideo: {
+    label: comboLabel(MOD_LABEL, SHIFT_LABEL, "S"),
+    aria: IS_MAC ? "Meta+Shift+S" : "Control+Shift+S",
+    match: (e) => hasMod(e) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "s",
+  },
+};
+
 let stylesInjected = false;
 function injectStyles(): void {
   if (stylesInjected) return;
@@ -187,9 +229,12 @@ function injectStyles(): void {
 .se-listhead{height:28px;border-bottom:1px solid var(--se-border);color:var(--se-muted);font-size:11px;text-transform:uppercase;letter-spacing:.03em;background:var(--se-head);flex:0 0 auto;}
 .se-scroll{flex:1 1 auto;overflow-y:auto;position:relative;}
 .se-inner{position:relative;width:100%;}
+.se-inner:focus{outline:none;}
 .se-row{position:absolute;left:0;right:0;height:${ROW_H}px;border-bottom:1px solid var(--se-border);cursor:pointer;box-sizing:border-box;}
 .se-row:hover{background:var(--se-head);}
 .se-row.sel{background:var(--se-sel);color:var(--se-sel-fg);}
+/* Keyboard focus: ring the selected cue when the list itself is focused. */
+.se-inner:focus-visible .se-row.sel{box-shadow:inset 0 0 0 2px var(--se-accent);}
 .se-row.playing{box-shadow:inset 3px 0 0 var(--se-accent);}
 .se-row.commented .se-text{opacity:.5;font-style:italic;}
 .se-row.commented .se-num::after{content:" ⊘";color:var(--se-muted);}
@@ -339,9 +384,11 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
   private buildToolbar(): void {
     const bar = el("div", "se-toolbar");
+    bar.setAttribute("role", "toolbar");
+    bar.setAttribute("aria-label", t("toolbarLabel"));
 
-    bar.appendChild(this.iconButton(ICON.add, t("addCue"), () => this.addCue()));
-    bar.appendChild(this.iconButton(ICON.remove, t("removeCue"), () => this.removeCue()));
+    bar.appendChild(this.iconButton(ICON.add, t("addCue"), () => this.addCue(), SHORTCUTS.addCue));
+    bar.appendChild(this.iconButton(ICON.remove, t("removeCue"), () => this.removeCue(), SHORTCUTS.removeCue));
     bar.appendChild(this.iconButton(ICON.shift, t("shiftTimes"), () => this.shiftTimes()));
     bar.appendChild(this.iconButton(ICON.overlaps, t("fixOverlaps"), () => this.fixOverlaps()));
 
@@ -355,6 +402,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     }
     fmt.value = this.doc.format;
     fmt.title = t("format");
+    fmt.setAttribute("aria-label", t("format"));
     fmt.addEventListener("change", () => this.setFormat(fmt.value as SubtitleFormat));
     this.fmtSel = fmt;
     bar.appendChild(fmt);
@@ -373,7 +421,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
     bar.appendChild(this.iconButton(ICON.transcribe, t("autoTranscribe"), () => this.openTranscribe()));
     bar.appendChild(this.iconButton(ICON.translate, t("translateTrack"), () => this.openTranslate()));
-    bar.appendChild(this.iconButton(ICON.savevideo, t("saveVideo"), () => this.saveIntoVideo()));
+    bar.appendChild(this.iconButton(ICON.savevideo, t("saveVideo"), () => this.saveIntoVideo(), SHORTCUTS.saveVideo));
 
     const sp = el("span", "se-sp");
     bar.appendChild(sp);
@@ -382,7 +430,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     bar.appendChild(this.countEl);
 
     if (this.opts.showSave !== false) {
-      bar.appendChild(this.iconButton(ICON.save, t("save"), () => this.save()));
+      bar.appendChild(this.iconButton(ICON.save, t("save"), () => this.save(), SHORTCUTS.save));
     }
     this.root.appendChild(bar);
   }
@@ -506,6 +554,11 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
     this.scrollEl = el("div", "se-scroll") as HTMLDivElement;
     this.innerEl = el("div", "se-inner") as HTMLDivElement;
+    // The cue list is a listbox: rows are options, the selected cue is the active descendant,
+    // and Up/Down arrows move the selection (handled in onKeydown).
+    this.innerEl.setAttribute("role", "listbox");
+    this.innerEl.setAttribute("aria-label", t("cueListLabel"));
+    this.innerEl.tabIndex = 0;
     this.scrollEl.appendChild(this.innerEl);
     this.scrollEl.addEventListener("scroll", this.onScroll);
     left.appendChild(this.scrollEl);
@@ -624,6 +677,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private makeRow(cue: Cue): HTMLDivElement {
     const row = el("div", "se-row") as HTMLDivElement;
     row.dataset.id = cue.id;
+    row.id = `se-opt-${cue.id}`;
+    row.setAttribute("role", "option");
     row.appendChild(el("div", "se-cell se-num"));
     row.appendChild(el("div", "se-cell se-time se-start"));
     row.appendChild(el("div", "se-cell se-time se-end"));
@@ -631,7 +686,12 @@ class SubtitleEditor implements SubtitleEditorHandle {
     row.appendChild(el("div", "se-cell se-cps"));
     if (this.doc.format === "ass") row.appendChild(el("div", "se-cell se-actor"));
     row.appendChild(el("div", "se-cell se-text"));
-    row.addEventListener("click", () => this.select(cue.id));
+    // Focus the list on click so the keyboard shortcuts (arrows, Insert/⌘Enter, Delete) work
+    // immediately after picking a cue with the mouse.
+    row.addEventListener("click", () => {
+      this.select(cue.id);
+      this.innerEl.focus();
+    });
     row.addEventListener("dblclick", () => this.seekTo(cue.startMs, true));
     return row;
   }
@@ -653,6 +713,10 @@ class SubtitleEditor implements SubtitleEditorHandle {
     row.classList.toggle("sel", cue.id === this.selectedId);
     row.classList.toggle("playing", cue.id === this.playingId);
     row.classList.toggle("commented", cue.assKind === "Comment");
+    row.setAttribute("aria-selected", String(cue.id === this.selectedId));
+    // A spoken description of the cue for screen readers: index, timing, and text.
+    const spoken = visibleText(cue.text) || t("noCues");
+    row.setAttribute("aria-label", `${index + 1}. ${formatTimestamp(cue.startMs, sep)} – ${formatTimestamp(cue.endMs, sep)}. ${spoken}`);
   }
 
   private refreshRow(id: string): void {
@@ -674,6 +738,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.detailTab = c && /\\p[1-9]/.test(c.text) ? "drawing" : "text";
     if (prev) this.refreshRow(prev);
     this.refreshRow(id);
+    this.innerEl.setAttribute("aria-activedescendant", `se-opt-${id}`);
     this.scrollSelectedIntoView();
     this.renderDetail();
     this.timeline?.render();
@@ -2475,10 +2540,32 @@ class SubtitleEditor implements SubtitleEditorHandle {
   // --- keyboard ------------------------------------------------------------
 
   private onKeydown = (e: KeyboardEvent): void => {
+    // Save shortcuts fire even while typing (and pre-empt the browser's own save dialog), but
+    // only when subedit owns saving; when a host owns it (showSave:false), let the key pass so
+    // the host handles it. Save-into-video only acts when a media file is actually loaded.
+    if (this.opts.showSave !== false && SHORTCUTS.save.match(e)) {
+      e.preventDefault();
+      this.save();
+      return;
+    }
+    if (this.mediaFile && SHORTCUTS.saveVideo.match(e)) {
+      e.preventDefault();
+      void this.saveIntoVideo();
+      return;
+    }
+
     const target = e.target as HTMLElement;
-    const typing = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
+    const typing =
+      target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable;
     if (typing) return;
-    if (e.key === "ArrowDown") {
+
+    if (SHORTCUTS.addCue.match(e)) {
+      e.preventDefault();
+      this.addCue();
+    } else if (SHORTCUTS.removeCue.match(e)) {
+      e.preventDefault();
+      this.removeCue();
+    } else if (e.key === "ArrowDown") {
       e.preventDefault();
       this.moveSelection(1);
     } else if (e.key === "ArrowUp") {
@@ -2514,15 +2601,17 @@ class SubtitleEditor implements SubtitleEditorHandle {
     return b;
   }
 
-  // An icon-only toolbar button: SVG glyph + a title/aria-label tooltip. mousedown is
-  // suppressed so clicking the toolbar keeps focus and selection in the editor.
-  private iconButton(svg: string, title: string, onClick: () => void): HTMLButtonElement {
+  // An icon-only toolbar button: SVG glyph + a title/aria-label tooltip. When the action has
+  // a keyboard shortcut, the tooltip shows it in parentheses and aria-keyshortcuts exposes it
+  // to assistive tech. mousedown is suppressed so clicking keeps focus/selection in the editor.
+  private iconButton(svg: string, title: string, onClick: () => void, sc?: Shortcut): HTMLButtonElement {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "se-btn se-iconbtn";
     b.innerHTML = svg;
-    b.title = title;
+    b.title = sc ? `${title} (${sc.label})` : title;
     b.setAttribute("aria-label", title);
+    if (sc) b.setAttribute("aria-keyshortcuts", sc.aria);
     b.addEventListener("mousedown", (e) => e.preventDefault());
     b.addEventListener("click", onClick);
     return b;

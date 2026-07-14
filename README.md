@@ -73,6 +73,21 @@ than loaded into memory.
 - **Self-contained i18n** (English, French, Japanese), auto-detected, host-overridable
   via `setLocale()`.
 
+## Keyboard & accessibility
+
+The toolbar is a labelled ARIA toolbar, the cue list is a listbox (each cue is a spoken
+option, arrow keys move the selection), and every action button announces its shortcut.
+Tooltips show the shortcut in parentheses:
+
+| Action | Shortcut |
+|---|---|
+| Move between cues | `↑` / `↓` |
+| Play / pause the preview | `Space` |
+| Add a cue | `Insert` (Windows/Linux) or `⌘`/`Ctrl`+`Enter` |
+| Remove the selected cue | `Delete` |
+| Save the file | `⌘`/`Ctrl`+`S` |
+| Save into the video | `⌘`/`Ctrl`+`Shift`+`S` |
+
 ## Status
 
 Shipped. SRT / VTT / ASS editing (virtualized list, detail editor, Style picker and
