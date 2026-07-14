@@ -284,6 +284,12 @@ class SubtitleEditor implements SubtitleEditorHandle {
       mpl2: "MPL2",
       ytjson: "YouTube JSON",
       spruce: "Spruce STL",
+      tmp: "TMPlayer",
+      csv: "CSV",
+      qttext: "QuickTime Text",
+      dvdsp: "DVD Studio Pro",
+      jsonsub: "JSON",
+      ttxt: "TTXT",
     };
     for (const f of Object.keys(FORMAT_LABELS) as SubtitleFormat[]) {
       const o = document.createElement("option");

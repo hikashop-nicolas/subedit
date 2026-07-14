@@ -1,8 +1,9 @@
 # subedit
 
-A standalone, framework-agnostic, client-side **subtitle editor** for a dozen formats (SRT,
-VTT, ASS/SSA, MicroDVD, LRC, TTML, SBV, SubViewer, SAMI, MPL2, YouTube JSON and Spruce STL).
-It parses a subtitle file into an editable cue list, lets you edit timings and
+A standalone, framework-agnostic, client-side **subtitle editor** for 18 formats (SRT, VTT,
+ASS/SSA, MicroDVD, LRC, TTML, SBV, SubViewer, SAMI, MPL2, YouTube JSON, Spruce STL, TMPlayer,
+CSV, QuickTime Text, DVD Studio Pro, plain JSON and TTXT). It parses a subtitle file into an
+editable cue list, lets you edit timings and
 text with a video/waveform preview and live CPS/duration feedback, and writes the changes
 **back into your file byte-for-byte** for well-formed files. Open a video and it becomes a
 media project with multiple subtitle tracks: it reads the embedded tracks, **transcribes**
@@ -37,10 +38,11 @@ than loaded into memory.
   identically: line-ending flavor, BOM, VTT header and NOTE/STYLE/REGION blocks, cue
   identifiers and settings are all preserved. Edited cues are re-serialized canonically.
 - **Many formats.** SRT, VTT, ASS/SSA, MicroDVD (`.sub`), LRC lyrics, TTML/DFXP, SBV
-  (YouTube), SubViewer, SAMI (`.smi`), MPL2, YouTube JSON (`.srv3`/`.json3`) and Spruce STL,
-  with conversion between any of them from the toolbar. Line-based formats round-trip
-  faithfully; XML/HTML/JSON layouts (TTML, SAMI, YouTube JSON) and LRC end times are
-  regenerated, since those formats don't preserve them byte-for-byte.
+  (YouTube), SubViewer, SAMI (`.smi`), MPL2, YouTube JSON (`.srv3`/`.json3`), Spruce STL,
+  TMPlayer, CSV, QuickTime Text, DVD Studio Pro, plain JSON and TTXT (3GPP) — with conversion
+  between any of them from the toolbar. Line-based formats round-trip faithfully; XML/HTML/JSON
+  layouts (TTML, SAMI, YouTube JSON, TTXT) and start-only formats' end times (LRC, TMPlayer)
+  are regenerated, since those formats don't preserve them byte-for-byte.
 - **Format-aware.** SRT, VTT and ASS/SSA parse/serialize with the correct timestamp form;
   convert between them from the toolbar. ASS keeps its Script Info, styles, fonts and
   comments byte-for-byte, rebuilding only the lines you edit.

@@ -16,7 +16,13 @@ export type SubtitleFormat =
   | "sami"
   | "mpl2"
   | "ytjson"
-  | "spruce";
+  | "spruce"
+  | "tmp"
+  | "csv"
+  | "qttext"
+  | "dvdsp"
+  | "jsonsub"
+  | "ttxt";
 
 export interface Cue {
   // Ephemeral id for the UI (list keys, selection). NOT persisted to the file.

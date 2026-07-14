@@ -14,6 +14,12 @@ import { parseSubViewer, serializeSubViewer } from "./subviewer";
 import { parseSami, serializeSami } from "./sami";
 import { parseYtJson, serializeYtJson } from "./youtube";
 import { parseSpruce, serializeSpruce } from "./spruce";
+import { parseTmp, serializeTmp } from "./tmp";
+import { parseCsvSubs, serializeCsvSubs } from "./csv";
+import { parseQtText, serializeQtText } from "./qttext";
+import { parseDvdStudio, serializeDvdStudio } from "./dvdsp";
+import { parseJsonSubs, serializeJsonSubs } from "./jsonsub";
+import { parseTtxt, serializeTtxt } from "./ttxt";
 
 export function detectFormat(filename: string | undefined, sample: string): SubtitleFormat {
   const ext = (filename ?? "").toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
@@ -30,19 +36,29 @@ export function detectFormat(filename: string | undefined, sample: string): Subt
   if (ext === "smi" || ext === "sami") return "sami";
   if (ext === "mpl" || ext === "mpl2") return "mpl2";
   if (ext === "srv3" || ext === "json3") return "ytjson";
+  if (ext === "json") return /"tStartMs"/.test(head) ? "ytjson" : "jsonsub";
   if (ext === "stl") return "spruce";
+  if (ext === "csv") return "csv";
+  if (ext === "ttxt") return "ttxt";
   if (ext === "sub") return !isMicroDvd && isSubViewer ? "subviewer" : "sub";
-  // Content sniff (no / unknown extension).
+  // Content sniff (no / unknown extension). Specific / structured patterns come first.
+  if (/^\{QTtext\}/i.test(head)) return "qttext";
   if (/^WEBVTT(\s|$)/.test(head)) return "vtt";
   if (/^\[script info\]/i.test(head) || /^scripttype\s*:/im.test(head)) return "ass";
   if (/<sami[\s>]/i.test(head)) return "sami";
+  if (/<TextStream[\s>]|<TextSample\b/i.test(head)) return "ttxt";
   if (/<tt[\s>]/i.test(head)) return "ttml";
   if (/"tStartMs"/.test(head)) return "ytjson";
+  if (/^\s*\[[\s\S]*?"text"/.test(head) && /"start(Ms)?"|"from"/.test(head)) return "jsonsub";
   if (isMicroDvd) return "sub";
   if (/^\[\d+\]\[\d+\]/m.test(head)) return "mpl2";
+  // Frame timecodes: DVD Studio Pro has spaces around the commas; Spruce doesn't. Both must be
+  // checked before TMPlayer, whose looser "HH:MM:SS:" pattern would otherwise swallow them.
+  if (/^\d{2}:\d{2}:\d{2}:\d{2}\s+,\s+\d{2}:\d{2}:\d{2}:\d{2}\s+,/m.test(head)) return "dvdsp";
   if (/^\d{2}:\d{2}:\d{2}:\d{2},\d{2}:\d{2}:\d{2}:\d{2},/m.test(head)) return "spruce";
   if (isSubViewer) return "subviewer";
   if (/^\d{1,2}:\d{2}:\d{2}[.,]\d{3},\d{1,2}:\d{2}:\d{2}[.,]\d{3}/m.test(head)) return "sbv";
+  if (/^\d{1,2}:\d{2}:\d{2}[:=]/m.test(head)) return "tmp";
   if (/^(?:\[[a-z#]+:[^\]]*\]\s*)*\[\d{1,2}:\d{2}[.:]/i.test(head)) return "lrc";
   return "srt";
 }
@@ -60,6 +76,12 @@ export function parseSubtitles(text: string, filename?: string): SubtitleDoc {
   if (fmt === "sami") return parseSami(text);
   if (fmt === "ytjson") return parseYtJson(text);
   if (fmt === "spruce") return parseSpruce(text);
+  if (fmt === "tmp") return parseTmp(text);
+  if (fmt === "csv") return parseCsvSubs(text);
+  if (fmt === "qttext") return parseQtText(text);
+  if (fmt === "dvdsp") return parseDvdStudio(text);
+  if (fmt === "jsonsub") return parseJsonSubs(text);
+  if (fmt === "ttxt") return parseTtxt(text);
   return parseSrt(text);
 }
 
@@ -75,6 +97,12 @@ export function serializeSubtitles(doc: SubtitleDoc): string {
   if (doc.format === "sami") return serializeSami(doc);
   if (doc.format === "ytjson") return serializeYtJson(doc);
   if (doc.format === "spruce") return serializeSpruce(doc);
+  if (doc.format === "tmp") return serializeTmp(doc);
+  if (doc.format === "csv") return serializeCsvSubs(doc);
+  if (doc.format === "qttext") return serializeQtText(doc);
+  if (doc.format === "dvdsp") return serializeDvdStudio(doc);
+  if (doc.format === "jsonsub") return serializeJsonSubs(doc);
+  if (doc.format === "ttxt") return serializeTtxt(doc);
   return serializeSrt(doc);
 }
 
@@ -95,7 +123,7 @@ export function convertDoc(doc: SubtitleDoc, target: SubtitleFormat): SubtitleDo
   next.assScriptInfo = undefined;
   next.assStylesTail = undefined;
   next.styles = undefined;
-  next.fps = target === "sub" || target === "spruce" ? doc.fps : undefined;
+  next.fps = target === "sub" || target === "spruce" || target === "dvdsp" ? doc.fps : undefined;
 
   if (target === "ass") {
     const parts = defaultAssParts(doc.eol);
