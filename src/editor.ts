@@ -187,6 +187,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
   // Show the ASS inline styling tools by default on roomy screens, collapse them on
   // phones so the styling controls do not swamp the cue list. Toggled per session.
   private assStyleToolsOpen = !(typeof window !== "undefined" && window.matchMedia?.("(max-width: 680px)").matches);
+  // Same idea for the per-line option fields (disabled / actor / layer / effect / margins).
+  private assExtrasOpen = !(typeof window !== "undefined" && window.matchMedia?.("(max-width: 680px)").matches);
   private posOverlay: HTMLDivElement | null = null;
   private positionCueId: string | null = null;
   private clipOverlay: HTMLDivElement | null = null;
@@ -769,7 +771,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     times.appendChild(this.cpsInfoEl);
     this.updateCpsInfo(cue);
     this.detailEl.appendChild(times);
-    if (this.doc.format === "ass") this.detailEl.appendChild(this.assExtrasRow(cue));
+    if (this.doc.format === "ass" && this.assExtrasOpen) this.detailEl.appendChild(this.assExtrasRow(cue));
 
     const ta = this.makeTextarea(cue);
     if (this.doc.format === "ass" && this.assStyleToolsOpen) {
@@ -1759,22 +1761,32 @@ class SubtitleEditor implements SubtitleEditorHandle {
     edit.title = t("editStyle");
     edit.setAttribute("aria-label", t("editStyle"));
     edit.addEventListener("click", () => this.editStyle(select.value));
-    // Toggle the inline styling tools (Text/Drawing tabs + override-tag bar) below the
-    // textarea. Collapsing them frees a lot of vertical room on phones.
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "se-btn se-iconbtn se-styletoggle" + (this.assStyleToolsOpen ? " on" : "");
-    toggle.innerHTML = ICON.tune;
-    toggle.title = t("inlineStyle");
-    toggle.setAttribute("aria-label", t("inlineStyle"));
-    toggle.setAttribute("aria-pressed", String(this.assStyleToolsOpen));
-    toggle.addEventListener("click", () => {
+    // Two independent collapse toggles: the inline styling tools (Text/Drawing tabs +
+    // override-tag bar) and the per-line option fields. Collapsing either frees room on phones.
+    const styleToggle = this.detailToggle(ICON.tune, t("inlineStyle"), this.assStyleToolsOpen, () => {
       this.assStyleToolsOpen = !this.assStyleToolsOpen;
       this.renderDetail();
     });
-    row.append(select, edit, toggle);
+    const extrasToggle = this.detailToggle(ICON.meta, t("lineOptions"), this.assExtrasOpen, () => {
+      this.assExtrasOpen = !this.assExtrasOpen;
+      this.renderDetail();
+    });
+    row.append(select, edit, styleToggle, extrasToggle);
     wrap.appendChild(row);
     return wrap;
+  }
+
+  // A small icon toggle button for a collapsible detail section (reflects on/off state).
+  private detailToggle(icon: string, title: string, on: boolean, onClick: () => void): HTMLButtonElement {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "se-btn se-iconbtn se-styletoggle" + (on ? " on" : "");
+    b.innerHTML = icon;
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    b.setAttribute("aria-pressed", String(on));
+    b.addEventListener("click", onClick);
+    return b;
   }
 
   // The remaining ASS Event fields for the selected cue, grouped into a fields row

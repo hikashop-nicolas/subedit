@@ -31,4 +31,5 @@ export const ICON = {
   problems: svgIcon('<path d="M8 2.5 14 13H2z"/><path d="M8 6.5v3M8 11v0"/>'),
   more: svgIcon('<circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/>'),
   tune: svgIcon('<path d="M2.5 4.5h5M11 4.5h2.5M2.5 11.5h2.5M9 11.5h4.5"/><circle cx="9" cy="4.5" r="1.6"/><circle cx="6.5" cy="11.5" r="1.6"/>'),
+  meta: svgIcon('<path d="M8.2 2.5H13v4.8l-6 6-4.8-4.8z"/><circle cx="10.4" cy="5.1" r="0.9" fill="currentColor" stroke="none"/>'),
 };
