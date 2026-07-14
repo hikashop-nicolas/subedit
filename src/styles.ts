@@ -92,7 +92,7 @@ export function injectStyles(): void {
 .se-checkfield input{width:auto;}
 .se-stylerow{display:flex;gap:4px;align-items:center;}
 .se-stylefield select{font:inherit;padding:3px 6px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);}
-.se-styleedit{padding:3px 6px;}
+.se-styleedit,.se-styletoggle{padding:3px 6px;}
 .se-detail textarea{font:inherit;min-height:56px;resize:vertical;padding:6px;border:1px solid var(--se-border);border-radius:5px;background:var(--se-bg);color:var(--se-fg);}
 .se-tabs{display:flex;gap:4px;border-bottom:1px solid var(--se-border);}
 .se-tab{font:inherit;padding:4px 12px;border:1px solid transparent;border-bottom:none;border-radius:5px 5px 0 0;background:none;color:var(--se-muted);cursor:pointer;}

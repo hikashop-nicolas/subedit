@@ -184,6 +184,9 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private waveStatusEl: HTMLDivElement | null = null;
   private detailTextarea: HTMLTextAreaElement | null = null;
   private detailTab: "text" | "drawing" = "text";
+  // Show the ASS inline styling tools by default on roomy screens, collapse them on
+  // phones so the styling controls do not swamp the cue list. Toggled per session.
+  private assStyleToolsOpen = !(typeof window !== "undefined" && window.matchMedia?.("(max-width: 680px)").matches);
   private posOverlay: HTMLDivElement | null = null;
   private positionCueId: string | null = null;
   private clipOverlay: HTMLDivElement | null = null;
@@ -769,7 +772,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     if (this.doc.format === "ass") this.detailEl.appendChild(this.assExtrasRow(cue));
 
     const ta = this.makeTextarea(cue);
-    if (this.doc.format === "ass") {
+    if (this.doc.format === "ass" && this.assStyleToolsOpen) {
       // Text / Drawing tabs: each shows only its relevant tools.
       const tabs = el("div", "se-tabs");
       const mkTab = (id: "text" | "drawing", label: string) => {
@@ -1756,7 +1759,20 @@ class SubtitleEditor implements SubtitleEditorHandle {
     edit.title = t("editStyle");
     edit.setAttribute("aria-label", t("editStyle"));
     edit.addEventListener("click", () => this.editStyle(select.value));
-    row.append(select, edit);
+    // Toggle the inline styling tools (Text/Drawing tabs + override-tag bar) below the
+    // textarea. Collapsing them frees a lot of vertical room on phones.
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "se-btn se-iconbtn se-styletoggle" + (this.assStyleToolsOpen ? " on" : "");
+    toggle.innerHTML = ICON.tune;
+    toggle.title = t("inlineStyle");
+    toggle.setAttribute("aria-label", t("inlineStyle"));
+    toggle.setAttribute("aria-pressed", String(this.assStyleToolsOpen));
+    toggle.addEventListener("click", () => {
+      this.assStyleToolsOpen = !this.assStyleToolsOpen;
+      this.renderDetail();
+    });
+    row.append(select, edit, toggle);
     wrap.appendChild(row);
     return wrap;
   }

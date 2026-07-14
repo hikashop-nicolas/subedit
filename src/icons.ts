@@ -30,4 +30,5 @@ export const ICON = {
   search: svgIcon('<circle cx="7" cy="7" r="4"/><path d="M10 10l3.5 3.5"/>'),
   problems: svgIcon('<path d="M8 2.5 14 13H2z"/><path d="M8 6.5v3M8 11v0"/>'),
   more: svgIcon('<circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/>'),
+  tune: svgIcon('<path d="M2.5 4.5h5M11 4.5h2.5M2.5 11.5h2.5M9 11.5h4.5"/><circle cx="9" cy="4.5" r="1.6"/><circle cx="6.5" cy="11.5" r="1.6"/>'),
 };
