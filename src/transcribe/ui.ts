@@ -245,6 +245,14 @@ export function openTranscribeDialog(host: TranscribeHost): void {
       const result = await run.done;
       badge.textContent = result.device === "webgpu" ? t("asrUsingGpu") : t("asrUsingCpu");
       const cues = segmentToCues(result.words);
+      if (!cues.length) {
+        // Whisper found no speech (e.g. a music-only segment); say so instead of just closing.
+        err.textContent = t("asrNoSpeech");
+        status.classList.remove("on");
+        startBtn.disabled = false;
+        modelSel.disabled = langSel.disabled = false;
+        return;
+      }
       host.onResult(cues, mode());
       back.remove();
     } catch (e) {
