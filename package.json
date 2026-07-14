@@ -22,14 +22,14 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/fix-worker-urls.mjs",
     "build:demo": "npm run assets && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "assets": "node scripts/copy-octopus-assets.mjs && node scripts/copy-libav-assets.mjs",
     "dev": "npm run assets && vite",
     "preview": "vite preview",
     "test": "vitest run",
-    "prepare": "tsc -p tsconfig.json"
+    "prepare": "tsc -p tsconfig.json && node scripts/fix-worker-urls.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
