@@ -150,6 +150,10 @@ const ICON = {
   savevideo: svgIcon('<rect x="2" y="3" width="12" height="8.5" rx="1"/><path d="M2 5.5h12M5 3v2.5M11 3v2.5" opacity="0.6"/><path d="M8 13v0M6.5 12l1.5 1.5 1.5-1.5"/>'),
   undo: svgIcon('<path d="M4 8h6a3 3 0 0 1 0 6H6"/><path d="M6.5 5L3.5 8l3 3"/>'),
   redo: svgIcon('<path d="M12 8H6a3 3 0 0 0 0 6h4"/><path d="M9.5 5l3 3-3 3"/>'),
+  setstart: svgIcon('<path d="M4 2.5v11"/><path d="M13 8H6.5"/><path d="M9 5.5 6.5 8 9 10.5"/>'),
+  setend: svgIcon('<path d="M12 2.5v11"/><path d="M3 8h6.5"/><path d="M7 5.5 9.5 8 7 10.5"/>'),
+  playcue: svgIcon('<path d="M4 3.5v9l7-4.5z" fill="currentColor" stroke="none"/>'),
+  follow: svgIcon('<circle cx="8" cy="8" r="2.5"/><path d="M8 2v2.5M8 11.5V14M2 8h2.5M11.5 8H14"/>'),
 };
 
 // Keyboard shortcuts. Each is shown in its button's tooltip and matched in onKeydown. The
@@ -167,7 +171,13 @@ interface Shortcut {
   aria: string; // ARIA key names for aria-keyshortcuts, e.g. "Control+S"
   match: (e: KeyboardEvent) => boolean;
 }
-const SHORTCUTS: Record<"addCue" | "removeCue" | "save" | "saveVideo" | "undo" | "redo", Shortcut> = {
+const SHORTCUTS: Record<
+  "addCue" | "removeCue" | "save" | "saveVideo" | "undo" | "redo" | "markIn" | "markOut" | "playCue",
+  Shortcut
+> = {
+  markIn: { label: "[", aria: "[", match: (e) => e.key === "[" && !hasMod(e) && !e.altKey },
+  markOut: { label: "]", aria: "]", match: (e) => e.key === "]" && !hasMod(e) && !e.altKey },
+  playCue: { label: "\\", aria: "\\", match: (e) => e.key === "\\" && !hasMod(e) && !e.altKey },
   undo: {
     label: comboLabel(MOD_LABEL, "Z"),
     aria: IS_MAC ? "Meta+Z" : "Control+Z",
@@ -241,6 +251,7 @@ function injectStyles(): void {
 .se-btn:disabled{opacity:.5;cursor:default;}
 .se-iconbtn{display:inline-flex;align-items:center;justify-content:center;padding:5px 7px;color:var(--se-fg);}
 .se-iconbtn:hover{color:var(--se-accent);}
+.se-iconbtn.on{color:var(--se-accent);background:var(--se-sel);border-color:var(--se-accent);}
 .se-iconbtn svg{display:block;}
 .se-count{color:var(--se-muted);font-size:12px;}
 .se-body{flex:1 1 auto;display:flex;min-height:0;}
@@ -407,6 +418,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private restoring = false;
   private undoBtn: HTMLButtonElement | null = null;
   private redoBtn: HTMLButtonElement | null = null;
+  private followBtn: HTMLButtonElement | null = null;
+  private followPlayback = true;
 
   constructor(container: HTMLElement, input: SubtitleInput, opts: SubtitleEditorOptions) {
     this.opts = opts;
@@ -450,6 +463,15 @@ class SubtitleEditor implements SubtitleEditorHandle {
     bar.appendChild(this.iconButton(ICON.remove, t("removeCue"), () => this.removeCue(), SHORTCUTS.removeCue));
     bar.appendChild(this.iconButton(ICON.shift, t("shiftTimes"), () => this.shiftTimes()));
     bar.appendChild(this.iconButton(ICON.overlaps, t("fixOverlaps"), () => this.fixOverlaps()));
+
+    // Video-timing tools: set the selected cue's start/end to the playhead, play from the cue,
+    // and toggle the list auto-scrolling to follow playback.
+    bar.appendChild(this.iconButton(ICON.setstart, t("setStartAtPlayhead"), () => this.setCueEdge("start"), SHORTCUTS.markIn));
+    bar.appendChild(this.iconButton(ICON.setend, t("setEndAtPlayhead"), () => this.setCueEdge("end"), SHORTCUTS.markOut));
+    bar.appendChild(this.iconButton(ICON.playcue, t("playFromCue"), () => this.playFromSelected(), SHORTCUTS.playCue));
+    this.followBtn = this.iconButton(ICON.follow, t("followPlayback"), () => this.toggleFollow());
+    this.followBtn.classList.toggle("on", this.followPlayback);
+    bar.appendChild(this.followBtn);
 
     const fmt = document.createElement("select");
     fmt.className = "se-btn";
@@ -804,13 +826,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   }
 
   private scrollSelectedIntoView(): void {
-    const i = this.doc.cues.findIndex((c) => c.id === this.selectedId);
-    if (i < 0) return;
-    const top = i * ROW_H;
-    const viewTop = this.scrollEl.scrollTop;
-    const viewH = this.scrollEl.clientHeight;
-    if (top < viewTop) this.scrollEl.scrollTop = top;
-    else if (top + ROW_H > viewTop + viewH) this.scrollEl.scrollTop = top + ROW_H - viewH;
+    if (this.selectedId) this.scrollCueIntoView(this.selectedId);
   }
 
   private renderDetail(): void {
@@ -2604,6 +2620,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.playingId = id;
     if (prev) this.refreshRow(prev);
     if (id) this.refreshRow(id);
+    // Keep the playing cue in view while the video actually plays, unless the user turned it off.
+    if (id && this.followPlayback && !this.video.paused) this.scrollCueIntoView(id);
   };
 
   private seekTo(ms: number, play = false): void {
@@ -2612,6 +2630,47 @@ class SubtitleEditor implements SubtitleEditorHandle {
       if (play) void this.video.play().catch(() => {});
       else this.timeline?.render();
     }
+  }
+
+  // --- video timing --------------------------------------------------------
+
+  // Set the selected cue's start or end to the current playhead, keeping a minimal 1ms span.
+  private setCueEdge(which: "start" | "end"): void {
+    const cue = this.selectedCue();
+    if (!cue) return;
+    if (!this.video) {
+      this.toast(t("timingNeedsVideo"));
+      return;
+    }
+    const ms = Math.round(this.video.currentTime * 1000);
+    if (which === "start") this.updateCue(cue.id, { startMs: Math.min(ms, cue.endMs - 1) });
+    else this.updateCue(cue.id, { endMs: Math.max(ms, cue.startMs + 1) });
+  }
+
+  private playFromSelected(): void {
+    const cue = this.selectedCue();
+    if (!cue) return;
+    if (!this.video) {
+      this.toast(t("timingNeedsVideo"));
+      return;
+    }
+    this.seekTo(cue.startMs, true);
+  }
+
+  private toggleFollow(): void {
+    this.followPlayback = !this.followPlayback;
+    this.followBtn?.classList.toggle("on", this.followPlayback);
+    if (this.followPlayback && this.playingId) this.scrollCueIntoView(this.playingId);
+  }
+
+  private scrollCueIntoView(id: string): void {
+    const i = this.doc.cues.findIndex((c) => c.id === id);
+    if (i < 0) return;
+    const top = i * ROW_H;
+    const viewTop = this.scrollEl.scrollTop;
+    const viewH = this.scrollEl.clientHeight;
+    if (top < viewTop) this.scrollEl.scrollTop = top;
+    else if (top + ROW_H > viewTop + viewH) this.scrollEl.scrollTop = top + ROW_H - viewH;
   }
 
   // --- keyboard ------------------------------------------------------------
@@ -2659,6 +2718,15 @@ class SubtitleEditor implements SubtitleEditorHandle {
     } else if (SHORTCUTS.removeCue.match(e)) {
       e.preventDefault();
       this.removeCue();
+    } else if (SHORTCUTS.markIn.match(e)) {
+      e.preventDefault();
+      this.setCueEdge("start");
+    } else if (SHORTCUTS.markOut.match(e)) {
+      e.preventDefault();
+      this.setCueEdge("end");
+    } else if (SHORTCUTS.playCue.match(e)) {
+      e.preventDefault();
+      this.playFromSelected();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       this.moveSelection(1);
