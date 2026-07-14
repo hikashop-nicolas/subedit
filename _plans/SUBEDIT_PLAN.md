@@ -393,8 +393,14 @@ translate mode (two-column original/translation).
   assert. Save streams via StreamTarget + showSaveFilePicker (blob-download
   fallback). Remaining refinement: translation generation tuning (m2m100 over-
   generates on very short inputs).
-- **Phase 6, Omnitext**: subtitle.impl.ts, format registration, preferred
-  editor wiring, git dep pin, ship to Pages + APK.
+- **Phase 6, Omnitext** DONE (2026-07-14): published subedit to GitHub
+  (hikashop-nicolas/subedit, public, Pages) and wired it into Omnitext:
+  editors/subtitle.ts + subtitle.impl.ts adapter, srt/vtt/ass/ssa format
+  descriptors (nativeEditor "subtitle", CodeMirror text fallback), removed
+  Omnitext's plain-text "subtitle" placeholder, bumped Omnitext's mediaplay
+  to the commit exporting decodeAudioToMono16k/extractWaveformPeaks. subedit
+  dist now rewrites new URL("./x.worker.ts") -> .js so a consumer bundler
+  (Vite) can resolve the transcription workers. Shipped to Pages + APK.
 - **Later / out of scope for now**: Web Speech / cloud ASR backends (MP4 subtitle
   extraction, progressive + fragmented, tx3g/wvtt, is DONE via codem-isoboxer),
   MicroDVD (.sub) and other niche text formats, image-based subtitles (VobSub/PGS
