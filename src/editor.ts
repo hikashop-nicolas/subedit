@@ -75,6 +75,15 @@ export interface Track {
   job?: TranslationJob;
 }
 
+// One undo/redo entry: the full editable model minus transient bits (a running translation
+// job isn't snapshotted). Only plain data, so it deep-clones cleanly.
+interface HistorySnap {
+  tracks: { id: string; label: string; language: string; doc: SubtitleDoc }[];
+  activeTrackId: string;
+  selectedId: string | null;
+}
+const HIST_MAX = 100;
+
 // An in-progress background translation attached to a track. The track's cues are filled live
 // as the worker streams batches; `parsed`/`refs` map each translatable run back to its cue so
 // results can be spliced in without disturbing tags. Can be paused/resumed/stopped.
@@ -139,6 +148,8 @@ const ICON = {
   transcribe: svgIcon('<path d="M3 8v0M5.5 5.5v5M8 3.5v9M10.5 6v4M13 8v0"/><path d="M11 13.5l1 1 2-2.5" opacity="0.7"/>'),
   translate: svgIcon('<circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2.2 1.8 2.2 10.2 0 12M8 2c-2.2 1.8-2.2 10.2 0 12"/>'),
   savevideo: svgIcon('<rect x="2" y="3" width="12" height="8.5" rx="1"/><path d="M2 5.5h12M5 3v2.5M11 3v2.5" opacity="0.6"/><path d="M8 13v0M6.5 12l1.5 1.5 1.5-1.5"/>'),
+  undo: svgIcon('<path d="M4 8h6a3 3 0 0 1 0 6H6"/><path d="M6.5 5L3.5 8l3 3"/>'),
+  redo: svgIcon('<path d="M12 8H6a3 3 0 0 0 0 6h4"/><path d="M9.5 5l3 3-3 3"/>'),
 };
 
 // Keyboard shortcuts. Each is shown in its button's tooltip and matched in onKeydown. The
@@ -156,7 +167,19 @@ interface Shortcut {
   aria: string; // ARIA key names for aria-keyshortcuts, e.g. "Control+S"
   match: (e: KeyboardEvent) => boolean;
 }
-const SHORTCUTS: Record<"addCue" | "removeCue" | "save" | "saveVideo", Shortcut> = {
+const SHORTCUTS: Record<"addCue" | "removeCue" | "save" | "saveVideo" | "undo" | "redo", Shortcut> = {
+  undo: {
+    label: comboLabel(MOD_LABEL, "Z"),
+    aria: IS_MAC ? "Meta+Z" : "Control+Z",
+    match: (e) => hasMod(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "z",
+  },
+  redo: {
+    // Ctrl/Cmd+Shift+Z everywhere; also accept Ctrl+Y on Windows/Linux where it's conventional.
+    label: comboLabel(MOD_LABEL, SHIFT_LABEL, "Z"),
+    aria: IS_MAC ? "Meta+Shift+Z" : "Control+Shift+Z Control+Y",
+    match: (e) =>
+      hasMod(e) && !e.altKey && ((e.shiftKey && e.key.toLowerCase() === "z") || (!e.shiftKey && !IS_MAC && e.key.toLowerCase() === "y")),
+  },
   // Insert has no key on most Macs, so accept Cmd/Ctrl+Enter too and show the fitting label.
   addCue: {
     label: IS_MAC ? comboLabel(MOD_LABEL, "↩") : "Insert", // ⌘↩ on Mac, Insert elsewhere
@@ -375,6 +398,16 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private rafPending = false;
   private subtitleTimer = 0;
 
+  // Undo/redo. The whole editable model (all tracks + selection) is snapshotted; edits within
+  // a short window coalesce into one step (so typing a word is one undo, not one per key).
+  private undoStack: HistorySnap[] = [];
+  private redoStack: HistorySnap[] = [];
+  private histBaseline: HistorySnap | null = null;
+  private histTimer = 0;
+  private restoring = false;
+  private undoBtn: HTMLButtonElement | null = null;
+  private redoBtn: HTMLButtonElement | null = null;
+
   constructor(container: HTMLElement, input: SubtitleInput, opts: SubtitleEditorOptions) {
     this.opts = opts;
     if (opts.locale) setLocale(opts.locale);
@@ -395,6 +428,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.renderDetail();
     if (this.doc.cues.length) this.select(this.doc.cues[0].id);
 
+    this.histBaseline = this.snapshot(); // the loaded document is the initial undo baseline
     this.root.addEventListener("keydown", this.onKeydown);
   }
 
@@ -404,6 +438,13 @@ class SubtitleEditor implements SubtitleEditorHandle {
     const bar = el("div", "se-toolbar");
     bar.setAttribute("role", "toolbar");
     bar.setAttribute("aria-label", t("toolbarLabel"));
+
+    this.undoBtn = this.iconButton(ICON.undo, t("undo"), () => this.undo(), SHORTCUTS.undo);
+    this.redoBtn = this.iconButton(ICON.redo, t("redo"), () => this.redo(), SHORTCUTS.redo);
+    this.undoBtn.disabled = true;
+    this.redoBtn.disabled = true;
+    bar.appendChild(this.undoBtn);
+    bar.appendChild(this.redoBtn);
 
     bar.appendChild(this.iconButton(ICON.add, t("addCue"), () => this.addCue(), SHORTCUTS.addCue));
     bar.appendChild(this.iconButton(ICON.remove, t("removeCue"), () => this.removeCue(), SHORTCUTS.removeCue));
@@ -2593,7 +2634,24 @@ class SubtitleEditor implements SubtitleEditorHandle {
     const target = e.target as HTMLElement;
     const typing =
       target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable;
-    if (typing) return;
+    if (typing) return; // let a focused text field keep its own native undo/redo
+
+    // Undo/redo only claim the key when they have something to do, so an empty stack still
+    // lets a host (e.g. Omnitext) handle it.
+    if (SHORTCUTS.undo.match(e)) {
+      if (this.canUndo()) {
+        e.preventDefault();
+        this.undo();
+      }
+      return;
+    }
+    if (SHORTCUTS.redo.match(e)) {
+      if (this.canRedo()) {
+        e.preventDefault();
+        this.redo();
+      }
+      return;
+    }
 
     if (SHORTCUTS.addCue.match(e)) {
       e.preventDefault();
@@ -2675,6 +2733,87 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.countEl.textContent = t("cueCount", { n: this.doc.cues.length });
     this.pushSubtitles();
     this.opts.onChange?.();
+    this.scheduleHistory();
+  }
+
+  // --- undo / redo ---------------------------------------------------------
+
+  private snapshot(): HistorySnap {
+    return {
+      tracks: this.tracks.map((tr) => ({ id: tr.id, label: tr.label, language: tr.language, doc: structuredClone(tr.doc) })),
+      activeTrackId: this.activeTrackId,
+      selectedId: this.selectedId,
+    };
+  }
+
+  // Called from markDirty on every edit. The first edit after a quiet period records the
+  // pre-edit baseline; a 500ms timer commits the group so rapid edits (typing) merge into one.
+  private scheduleHistory(): void {
+    if (this.restoring) return;
+    if (!this.histTimer) {
+      if (this.histBaseline) {
+        this.undoStack.push(this.histBaseline);
+        if (this.undoStack.length > HIST_MAX) this.undoStack.shift();
+      }
+      this.redoStack = [];
+    }
+    window.clearTimeout(this.histTimer);
+    this.histTimer = window.setTimeout(() => {
+      this.histBaseline = this.snapshot();
+      this.histTimer = 0;
+      this.updateHistoryButtons();
+    }, 500);
+    this.updateHistoryButtons();
+  }
+
+  private undo(): void {
+    if (this.histTimer) {
+      window.clearTimeout(this.histTimer);
+      this.histTimer = 0;
+    }
+    const prev = this.undoStack.pop();
+    if (!prev) return;
+    this.redoStack.push(this.snapshot());
+    this.restoreSnap(prev);
+    this.histBaseline = prev;
+    this.updateHistoryButtons();
+  }
+
+  private redo(): void {
+    if (this.histTimer) {
+      window.clearTimeout(this.histTimer);
+      this.histTimer = 0;
+    }
+    const next = this.redoStack.pop();
+    if (!next) return;
+    this.undoStack.push(this.snapshot());
+    this.restoreSnap(next);
+    this.histBaseline = next;
+    this.updateHistoryButtons();
+  }
+
+  private canUndo(): boolean {
+    return this.undoStack.length > 0;
+  }
+  private canRedo(): boolean {
+    return this.redoStack.length > 0;
+  }
+
+  private restoreSnap(snap: HistorySnap): void {
+    this.restoring = true;
+    this.tracks = snap.tracks.map((tr) => ({ id: tr.id, label: tr.label, language: tr.language, doc: structuredClone(tr.doc) }));
+    this.activeTrackId = this.tracks.some((tr) => tr.id === snap.activeTrackId) ? snap.activeTrackId : (this.tracks[0]?.id ?? "");
+    this.renderTrackBar();
+    this.refreshForActiveDoc(); // re-selects cues[0]; restore the saved selection if it survives
+    if (snap.selectedId && this.doc.cues.some((c) => c.id === snap.selectedId)) this.select(snap.selectedId);
+    this.pushSubtitles(true);
+    this.opts.onChange?.();
+    this.restoring = false;
+  }
+
+  private updateHistoryButtons(): void {
+    if (this.undoBtn) this.undoBtn.disabled = !this.canUndo();
+    if (this.redoBtn) this.redoBtn.disabled = !this.canRedo();
   }
 
   // --- public API ----------------------------------------------------------
@@ -2694,6 +2833,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   destroy(): void {
     window.clearTimeout(this.subtitleTimer);
     window.clearTimeout(this.toastTimer);
+    window.clearTimeout(this.histTimer);
     document.removeEventListener("keydown", this.onPosKey, true);
     document.removeEventListener("keydown", this.onClipKey, true);
     document.removeEventListener("keydown", this.onDrawKey, true);
