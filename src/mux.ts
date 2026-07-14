@@ -50,15 +50,14 @@ export type MuxMedia = Blob | Uint8Array;
 // supports random access so the output is seekable (Cues/moov in place).
 export async function muxIntoContainer(media: MuxMedia, subs: MuxSubtitle[], container: MuxContainer): Promise<Uint8Array> {
   const target = new BufferTarget();
-  await runMux(media, subs, container, target, false);
+  await runMux(media, subs, container, target);
   return new Uint8Array(target.buffer as ArrayBuffer);
 }
 
 // Stream the output straight to a file (showSaveFilePicker handle), so multi-GB saves never
-// buffer the whole result in RAM. StreamTarget's chunks match FileSystemWritableFileStream.
-// Uses append-only output (forward-only writes, unknown-size elements): without it the muxer
-// seeks backward to patch cluster/segment sizes, which a forward stream can't do, so it would
-// buffer the ENTIRE file and flush nothing until finalize (a multi-GB stall / 0-byte file).
+// buffer the whole result in RAM. StreamTarget's chunks match FileSystemWritableFileStream, and
+// the writable supports random-access writes, so the muxer can seek back to patch sizes and
+// write a Cues index -> the output stays seekable (append-only would drop the index).
 export async function muxToFile(media: MuxMedia, subs: MuxSubtitle[], container: MuxContainer, file: FileWritable, onBytes?: (written: number) => void): Promise<void> {
   let written = 0;
   const stream = new WritableStream<StreamTargetChunk>({
@@ -70,43 +69,52 @@ export async function muxToFile(media: MuxMedia, subs: MuxSubtitle[], container:
     close: () => file.close(),
     abort: (reason) => file.abort?.(reason) ?? Promise.resolve(),
   });
-  await runMux(media, subs, container, new StreamTarget(stream), true);
+  await runMux(media, subs, container, new StreamTarget(stream));
 }
 
-async function runMux(media: MuxMedia, subs: MuxSubtitle[], container: MuxContainer, target: Target, appendOnly: boolean): Promise<void> {
+async function runMux(media: MuxMedia, subs: MuxSubtitle[], container: MuxContainer, target: Target): Promise<void> {
   // A Blob/File is read on demand by BlobSource (no full in-memory copy); a Uint8Array must be
   // wrapped, which copies it once.
   const blob = media instanceof Blob ? media : new Blob([media as BlobPart]);
   const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
-  // MKV needs appendOnly to stream (else it seeks back to patch sizes and buffers everything).
-  // MP4 needs nothing: mediabunny defaults a StreamTarget to fastStart:false (moov at the end,
-  // forward-only) and a BufferTarget to in-memory fast start, both correct for their path.
-  const format: OutputFormat = container === "mp4" ? new Mp4OutputFormat() : new MkvOutputFormat({ appendOnly });
+  // Seekable output (Cues index + known-size elements). Both targets support random-access
+  // writes (BufferTarget in RAM, StreamTarget via the file handle), so the muxer streams AND
+  // stays seekable. Memory stays bounded because every source is closed as it finishes (below).
+  const format: OutputFormat = container === "mp4" ? new Mp4OutputFormat() : new MkvOutputFormat();
   const output = new Output({ format, target });
 
-  // Stream-copy every video / audio track (no decode/encode).
+  // Stream-copy every video / audio track (no decode/encode), preserving each track's original
+  // disposition (default / forced flags) so we don't turn every track into a "default" one.
   const copies: { sink: EncodedPacketSink; add: (p: EncodedPacket, meta?: unknown) => Promise<void>; close: () => void; meta: unknown }[] = [];
   for (const tr of await input.getTracks()) {
+    let disposition: unknown;
+    try {
+      disposition = tr.disposition;
+    } catch {
+      disposition = undefined;
+    }
     if (tr.isVideoTrack()) {
       const codec = await tr.getCodec();
       if (!codec) continue;
       const src = new EncodedVideoPacketSource(codec);
-      output.addVideoTrack(src);
+      output.addVideoTrack(src, { disposition } as never);
       copies.push({ sink: new EncodedPacketSink(tr), add: (p, m) => src.add(p, m as never), close: () => src.close(), meta: { decoderConfig: await tr.getDecoderConfig() } });
     } else if (tr.isAudioTrack()) {
       const codec = await tr.getCodec();
       if (!codec) continue;
       const src = new EncodedAudioPacketSource(codec);
-      output.addAudioTrack(src);
+      output.addAudioTrack(src, { disposition } as never);
       copies.push({ sink: new EncodedPacketSink(tr), add: (p, m) => src.add(p, m as never), close: () => src.close(), meta: { decoderConfig: await tr.getDecoderConfig() } });
     }
   }
 
-  const subSrcs = subs.map((s) => {
+  const subSrcs = subs.map((s, i) => {
     // "ass" -> styled S_TEXT/ASS (MKV only; mediabunny rejects it for containers that can't
     // hold it). The caller passes "vtt" when styling isn't wanted or supported.
     const src = new TextSubtitleSource(s.kind === "ass" ? "ass" : "webvtt");
-    output.addSubtitleTrack(src, { languageCode: LANG2TO3[s.language], name: s.name || undefined });
+    // Only the first subtitle stays default; without this every track omits FlagDefault and
+    // Matroska treats an absent flag as default, so the new track would hijack the default.
+    output.addSubtitleTrack(src, { languageCode: LANG2TO3[s.language], name: s.name || undefined, disposition: { default: i === 0 } } as never);
     return { src, content: s.content };
   });
 
