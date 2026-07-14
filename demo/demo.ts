@@ -2,7 +2,9 @@ import { createSubtitleEditor, type SubtitleEditorHandle } from "../src/index";
 
 const editorEl = document.getElementById("editor")!;
 const fileInput = document.getElementById("file") as HTMLInputElement;
+const openBtn = document.getElementById("open") as HTMLButtonElement;
 const newBtn = document.getElementById("new") as HTMLButtonElement;
+const newFmt = document.getElementById("newfmt") as HTMLSelectElement;
 let handle: SubtitleEditorHandle | null = null;
 
 function open(text: string, filename: string): void {
@@ -14,12 +16,21 @@ function open(text: string, filename: string): void {
   (window as unknown as Record<string, unknown>).subHandle = handle; // handy in the console
 }
 
+// The styled Open button proxies to the hidden native file input.
+openBtn.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", async () => {
   const f = fileInput.files?.[0];
   if (f) open(await f.text(), f.name);
+  fileInput.value = ""; // let the same file be re-opened
 });
 
-newBtn.addEventListener("click", () => open("WEBVTT\n\n", "untitled.vtt"));
+// New: create an empty document in the format chosen in the dropdown. subedit detects the
+// format from the extension; ASS/SSA scaffold their headers on the first cue.
+const BLANK: Record<string, string> = { srt: "", vtt: "WEBVTT\n\n", ass: "", ssa: "" };
+newBtn.addEventListener("click", () => {
+  const fmt = newFmt.value;
+  open(BLANK[fmt] ?? "", `untitled.${fmt}`);
+});
 
 // A small sample so the demo shows something on load.
 const SAMPLE = [

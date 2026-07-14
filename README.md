@@ -9,19 +9,24 @@ the audio (Whisper), **translates** a track into another language, and **saves t
 back into the video file**. Everything runs in the browser, on device: no server, no
 upload, and models/media are streamed so multi-GB files never sit in RAM.
 
-**[▶ Live demo](https://hikashop-nicolas.github.io/subedit/)** — open an `.srt`, `.vtt`
-or `.ass` file, or start a new one.
+## ▶ Try it
 
-```ts
-import { createSubtitleEditor } from "subedit";
+**[Open subedit →](https://hikashop-nicolas.github.io/subedit/)**
 
-const handle = createSubtitleEditor(containerEl, { text: fileText, filename: "subs.srt" }, {
-  onChange: () => console.log("edited"),
-});
+No install, no sign-up, nothing to upload. Open the page and:
 
-// later, to save:
-const edited = handle.getText(); // the edited file, serialized in its format
-```
+- **Open** a subtitle file (`.srt`, `.vtt`, `.ass`, `.ssa`) to edit it, or click **New**
+  to start one from scratch (pick the format).
+- Edit timings and text in the cue list; the detail panel shows characters-per-second and
+  duration warnings as you go.
+- **Load a video or audio file** to preview your subtitles against it, scrub the waveform
+  timeline, and drag cues to retime them.
+- Auto-generate a track from the audio (**transcribe**) or **translate** a track into
+  another language, then **save everything back into the video** — all on your device.
+
+Your files never leave your browser. Speech recognition and translation models download
+once and then run offline, and even multi-gigabyte videos are streamed from disk rather
+than loaded into memory.
 
 ## What it does
 
@@ -70,16 +75,29 @@ const edited = handle.getText(); // the edited file, serialized in its format
 
 ## Status
 
-Phases 0-5 done: SRT / VTT / ASS editing (virtualized list, detail editor, Style picker
-and styles/effects tools); the embedded mediaplay preview with cue seek, current-cue
-highlight and live (libass-styled) rendering; the waveform **timeline** with draggable cue
-blocks; and the **media-anchored multi-track workflow**, open a video, load its embedded
-tracks, transcribe (Whisper) and translate (m2m100 / NLLB) into new tracks, and mux them
-back into the container (streamed to disk). See
-[`_plans/SUBEDIT_PLAN.md`](_plans/SUBEDIT_PLAN.md) for the roadmap; next up is Omnitext
-integration.
+Shipped. SRT / VTT / ASS editing (virtualized list, detail editor, Style picker and
+styles/effects tools); the embedded mediaplay preview with cue seek, current-cue highlight
+and live (libass-styled) rendering; the waveform **timeline** with draggable cue blocks;
+and the **media-anchored multi-track workflow**, open a video, load its embedded tracks,
+transcribe (Whisper) and translate (m2m100 / NLLB) into new tracks, and mux them back into
+the container (streamed to disk). subedit is also embedded in
+[Omnitext](https://github.com/hikashop-nicolas/omnitext) as its subtitle editor. See
+[`_plans/SUBEDIT_PLAN.md`](_plans/SUBEDIT_PLAN.md) for the full history.
 
-## API
+## Use it in your own app
+
+subedit is also a framework-agnostic library, mount it in any page with one call:
+
+```ts
+import { createSubtitleEditor } from "subedit";
+
+const handle = createSubtitleEditor(containerEl, { text: fileText, filename: "subs.srt" }, {
+  onChange: () => console.log("edited"),
+});
+
+// later, to save:
+const edited = handle.getText(); // the edited file, serialized in its format
+```
 
 `createSubtitleEditor(container, { text, filename? }, options?) -> handle`
 

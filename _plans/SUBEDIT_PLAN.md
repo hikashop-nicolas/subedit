@@ -1,4 +1,10 @@
-# subedit: client-side subtitle editor (draft plan)
+# subedit: client-side subtitle editor (status)
+
+> **Status (2026-07-14): shipped.** Phases 0-6 are all done. subedit is public at
+> [github:hikashop-nicolas/subedit](https://github.com/hikashop-nicolas/subedit) (MIT),
+> lives at [hikashop-nicolas.github.io/subedit](https://hikashop-nicolas.github.io/subedit/),
+> and is wired into Omnitext as a git dependency. What remains is optional polish
+> (see the end of the Phases list) rather than core work.
 
 ## Goal
 
@@ -7,7 +13,7 @@ pattern as pdfedit / sheetedit / geoedit / mediaplay:
 
 - Public repo `github:hikashop-nicolas/subedit`, MIT (name checked free on npm
   and GitHub on 2026-07-12).
-- Consumed by Omnitext as a git dependency for opening .srt / .ass / .ssa / .vtt.
+- Consumed by Omnitext as a git dependency for opening .srt / .ass / .ssa / .vtt (DONE).
 - Uses **mediaplay** as a dependency for the video/audio preview pane, which
   brings for free: MKV/legacy container remux, AC-3/E-AC-3/DTS/TrueHD audio
   decode, styled ASS rendering via libass with embedded fonts.
@@ -401,6 +407,14 @@ translate mode (two-column original/translation).
   to the commit exporting decodeAudioToMono16k/extractWaveformPeaks. subedit
   dist now rewrites new URL("./x.worker.ts") -> .js so a consumer bundler
   (Vite) can resolve the transcription workers. Shipped to Pages + APK.
+  Post-integration hardening (all shipped): new *blank* .srt/.ass docs open
+  straight in the subedit cue editor in Omnitext (opt-in format flag +
+  MIME-derived filename so a blank .ass opens in ASS mode); mediaplay's libav
+  loader retries past a poisoned dynamic import (one transient failure had
+  silently killed AC-3/E-AC-3 audio, waveform and Dolby transcription for the
+  whole page session); and the transcribe/translate buttons now toast on a
+  failed dialog import instead of silently doing nothing. The standalone demo
+  header was cleaned up (styled Open + New-with-format buttons).
 - **Later / out of scope for now**: Web Speech / cloud ASR backends (MP4 subtitle
   extraction, progressive + fragmented, tx3g/wvtt, is DONE via codem-isoboxer),
   MicroDVD (.sub) and other niche text formats, image-based subtitles (VobSub/PGS
