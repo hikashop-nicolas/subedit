@@ -38,9 +38,11 @@ export const WHISPER_MODELS: WhisperModelInfo[] = [
   {
     id: "onnx-community/kotoba-whisper-bilingual-v1.0-ONNX",
     label: "Kotoba bilingual (JA/EN)",
-    sizeMb: 510,
+    sizeMb: 750,
     descKey: "modelDescKotoba",
-    dtype: { webgpu: { encoder_model: "q4f16", decoder_model_merged: "q4f16" }, wasm: "q8" },
+    // kotoba is a *distilled* model (few decoder layers), so 4-bit (q4f16) quantization wrecks
+    // it into garbage; fp16 keeps it accurate. (Full Whisper models tolerate q4 fine.)
+    dtype: { webgpu: "fp16", wasm: "q8" },
     timestamps: "sentence",
   },
 ];

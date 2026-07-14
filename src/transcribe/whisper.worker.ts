@@ -53,6 +53,9 @@ onMessage(async (e: MessageEvent) => {
       return_timestamps: msg.timestamps === "sentence" ? true : "word",
       language: msg.language || null,
       task: msg.task ?? "transcribe",
+      // Whisper loops on non-speech (laughter, music): it repeats a token forever ("はっはっ…").
+      // Forbidding any 5-gram from repeating breaks the loop while leaving normal speech alone.
+      no_repeat_ngram_size: 5,
     };
     let out;
     try {
