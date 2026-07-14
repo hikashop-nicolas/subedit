@@ -29,4 +29,5 @@ export const ICON = {
   split: svgIcon('<rect x="3" y="2.5" width="10" height="3.5" rx="1"/><rect x="3" y="10" width="10" height="3.5" rx="1"/><path d="M8 9.8V6.2M6.5 7.8 8 6.2l1.5 1.6"/>'),
   search: svgIcon('<circle cx="7" cy="7" r="4"/><path d="M10 10l3.5 3.5"/>'),
   problems: svgIcon('<path d="M8 2.5 14 13H2z"/><path d="M8 6.5v3M8 11v0"/>'),
+  more: svgIcon('<circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/>'),
 };

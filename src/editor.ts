@@ -204,6 +204,9 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private followBtn: HTMLButtonElement | null = null;
   private followPlayback = true;
   private problemsBtn: HTMLButtonElement | null = null;
+  private tbObserver: ResizeObserver | null = null;
+  private tbLayout: (() => void) | null = null;
+  private tbOnDocClick: ((e: MouseEvent) => void) | null = null;
   private findBar: HTMLDivElement | null = null;
   private findInput: HTMLInputElement | null = null;
   private findReplaceInput: HTMLInputElement | null = null;
@@ -252,22 +255,28 @@ class SubtitleEditor implements SubtitleEditorHandle {
 
     bar.appendChild(this.iconButton(ICON.add, t("addCue"), () => this.addCue(), SHORTCUTS.addCue));
     bar.appendChild(this.iconButton(ICON.remove, t("removeCue"), () => this.removeCue(), SHORTCUTS.removeCue));
-    bar.appendChild(this.iconButton(ICON.merge, t("mergeCue"), () => this.mergeCue()));
-    bar.appendChild(this.iconButton(ICON.split, t("splitCue"), () => this.splitCue()));
-    bar.appendChild(this.iconButton(ICON.search, t("findReplace"), () => this.toggleFind(), SHORTCUTS.find));
-    this.problemsBtn = this.iconButton(ICON.problems, t("problems"), () => this.toggleProblems());
-    bar.appendChild(this.problemsBtn);
-    bar.appendChild(this.iconButton(ICON.shift, t("shiftTimes"), () => this.shiftTimes()));
-    bar.appendChild(this.iconButton(ICON.overlaps, t("fixOverlaps"), () => this.fixOverlaps()));
 
+    // Secondary buttons are "pocketable": when the toolbar is too narrow to fit, they move
+    // (from the right) into a "…" overflow popover, so no control is lost on small screens.
+    const pocket: HTMLElement[] = [];
+    const pk = (b: HTMLButtonElement): HTMLButtonElement => {
+      bar.appendChild(b);
+      pocket.push(b);
+      return b;
+    };
+    pk(this.iconButton(ICON.merge, t("mergeCue"), () => this.mergeCue()));
+    pk(this.iconButton(ICON.split, t("splitCue"), () => this.splitCue()));
+    pk(this.iconButton(ICON.search, t("findReplace"), () => this.toggleFind(), SHORTCUTS.find));
+    this.problemsBtn = pk(this.iconButton(ICON.problems, t("problems"), () => this.toggleProblems()));
+    pk(this.iconButton(ICON.shift, t("shiftTimes"), () => this.shiftTimes()));
+    pk(this.iconButton(ICON.overlaps, t("fixOverlaps"), () => this.fixOverlaps()));
     // Video-timing tools: set the selected cue's start/end to the playhead, play from the cue,
     // and toggle the list auto-scrolling to follow playback.
-    bar.appendChild(this.iconButton(ICON.setstart, t("setStartAtPlayhead"), () => this.setCueEdge("start"), SHORTCUTS.markIn));
-    bar.appendChild(this.iconButton(ICON.setend, t("setEndAtPlayhead"), () => this.setCueEdge("end"), SHORTCUTS.markOut));
-    bar.appendChild(this.iconButton(ICON.playcue, t("playFromCue"), () => this.playFromSelected(), SHORTCUTS.playCue));
-    this.followBtn = this.iconButton(ICON.follow, t("followPlayback"), () => this.toggleFollow());
+    pk(this.iconButton(ICON.setstart, t("setStartAtPlayhead"), () => this.setCueEdge("start"), SHORTCUTS.markIn));
+    pk(this.iconButton(ICON.setend, t("setEndAtPlayhead"), () => this.setCueEdge("end"), SHORTCUTS.markOut));
+    pk(this.iconButton(ICON.playcue, t("playFromCue"), () => this.playFromSelected(), SHORTCUTS.playCue));
+    this.followBtn = pk(this.iconButton(ICON.follow, t("followPlayback"), () => this.toggleFollow()));
     this.followBtn.classList.toggle("on", this.followPlayback);
-    bar.appendChild(this.followBtn);
 
     const fmt = document.createElement("select");
     fmt.className = "se-btn";
@@ -316,9 +325,15 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.scriptBtn.style.display = this.doc.format === "ass" ? "" : "none";
     bar.appendChild(this.scriptBtn);
 
-    bar.appendChild(this.iconButton(ICON.transcribe, t("autoTranscribe"), () => this.openTranscribe()));
-    bar.appendChild(this.iconButton(ICON.translate, t("translateTrack"), () => this.openTranslate()));
-    bar.appendChild(this.iconButton(ICON.savevideo, t("saveVideo"), () => this.saveIntoVideo(), SHORTCUTS.saveVideo));
+    pk(this.iconButton(ICON.transcribe, t("autoTranscribe"), () => this.openTranscribe()));
+    pk(this.iconButton(ICON.translate, t("translateTrack"), () => this.openTranslate()));
+    pk(this.iconButton(ICON.savevideo, t("saveVideo"), () => this.saveIntoVideo(), SHORTCUTS.saveVideo));
+
+    // The "…" overflow button sits at the right edge of the button cluster (before the spacer);
+    // pocketed buttons appear in a popover below it.
+    const moreBtn = this.iconButton(ICON.more, t("moreTools"), () => {});
+    moreBtn.classList.add("se-tb-more");
+    bar.appendChild(moreBtn);
 
     const sp = el("span", "se-sp");
     bar.appendChild(sp);
@@ -330,6 +345,50 @@ class SubtitleEditor implements SubtitleEditorHandle {
       bar.appendChild(this.iconButton(ICON.save, t("save"), () => this.save(), SHORTCUTS.save));
     }
     this.root.appendChild(bar);
+    this.setupToolbarOverflow(bar, pocket, moreBtn);
+  }
+
+  // Compact the toolbar: when the buttons don't fit on one row, move pocketable ones (from the
+  // right) into a "…" popover, recomputed on resize. Non-pocketable controls (undo/redo/add/
+  // remove, the format select, the ASS style/script buttons and count/save) always stay.
+  private setupToolbarOverflow(bar: HTMLElement, pocket: HTMLElement[], moreBtn: HTMLButtonElement): void {
+    const overflow = el("div", "se-tb-overflow") as HTMLDivElement;
+    overflow.hidden = true;
+    overflow.setAttribute("role", "menu");
+    overflow.setAttribute("aria-label", t("moreTools"));
+    this.root.appendChild(overflow);
+    moreBtn.style.display = "none";
+    moreBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      overflow.style.top = `${bar.offsetHeight}px`;
+      overflow.hidden = !overflow.hidden;
+    });
+    // Clicking a pocketed button runs its action, then closes the popover.
+    overflow.addEventListener("click", () => (overflow.hidden = true));
+    this.tbOnDocClick = (e: MouseEvent) => {
+      if (!overflow.hidden && !overflow.contains(e.target as Node) && e.target !== moreBtn) overflow.hidden = true;
+    };
+    document.addEventListener("click", this.tbOnDocClick);
+
+    const canonical = [...bar.children] as HTMLElement[]; // canonical order for reset
+    const fits = () => bar.scrollWidth <= bar.clientWidth + 1;
+    this.tbLayout = () => {
+      overflow.hidden = true;
+      for (const c of canonical) bar.appendChild(c); // restore order, pulling any back from the popover
+      moreBtn.style.display = "none";
+      if (fits()) return;
+      moreBtn.style.display = "";
+      // Pocket visible pocketable buttons from the right until everything fits.
+      for (let i = pocket.length - 1; i >= 0 && !fits(); i -= 1) {
+        if (pocket[i].style.display === "none") continue;
+        overflow.insertBefore(pocket[i], overflow.firstChild);
+      }
+    };
+    this.tbLayout();
+    requestAnimationFrame(() => this.tbLayout?.());
+    setTimeout(() => this.tbLayout?.(), 150); // re-measure once fonts/layout settle
+    this.tbObserver = new ResizeObserver(() => this.tbLayout?.());
+    this.tbObserver.observe(bar);
   }
 
   // --- tracks --------------------------------------------------------------
@@ -428,6 +487,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     const isAss = this.doc.format === "ass";
     this.stylesBtn.style.display = isAss ? "" : "none";
     this.scriptBtn.style.display = isAss ? "" : "none";
+    this.tbLayout?.(); // the style/script buttons changed the toolbar width
     this.leftEl.classList.toggle("se-ass", isAss);
     this.fmtSel.value = this.doc.format;
     this.renderListHead();
@@ -3008,6 +3068,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
     window.clearTimeout(this.subtitleTimer);
     window.clearTimeout(this.toastTimer);
     window.clearTimeout(this.histTimer);
+    this.tbObserver?.disconnect();
+    if (this.tbOnDocClick) document.removeEventListener("click", this.tbOnDocClick);
     document.removeEventListener("keydown", this.onPosKey, true);
     document.removeEventListener("keydown", this.onClipKey, true);
     document.removeEventListener("keydown", this.onDrawKey, true);

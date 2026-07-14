@@ -9,7 +9,12 @@ export function injectStyles(): void {
   const css = `
 .se-root{--se-bg:#fff;--se-fg:#1a1a1e;--se-muted:#667;--se-border:#e2e4ea;--se-sel:#dbeafe;--se-sel-fg:#0b1220;--se-head:#f6f7f9;--se-warn:#b45309;--se-bad:#b91c1c;--se-accent:#2563eb;
   display:flex;flex-direction:column;height:100%;min-height:0;position:relative;font-family:system-ui,sans-serif;color:var(--se-fg);background:var(--se-bg);font-size:13px;}
-.se-toolbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 8px;border-bottom:1px solid var(--se-border);background:var(--se-head);}
+.se-toolbar{display:flex;gap:6px;align-items:center;flex-wrap:nowrap;overflow:hidden;padding:6px 8px;border-bottom:1px solid var(--se-border);background:var(--se-head);}
+.se-toolbar>*{flex-shrink:0;}
+.se-toolbar>.se-sp{flex:1 1 auto;flex-shrink:1;min-width:0;}
+/* Overflow popover for the buttons that don't fit; positioned below the toolbar. */
+.se-tb-overflow{position:absolute;right:8px;z-index:30;display:flex;flex-wrap:wrap;gap:6px;align-items:center;max-width:min(320px,80vw);padding:6px;background:var(--se-bg);border:1px solid var(--se-border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.28);}
+.se-tb-overflow[hidden]{display:none;}
 .se-toolbar b{font-size:13px;margin-right:6px;}
 .se-toolbar .se-sp{flex:1 1 auto;}
 .se-tracks{display:flex;gap:4px;align-items:center;padding:4px 8px;border-bottom:1px solid var(--se-border);background:var(--se-head);overflow-x:auto;flex-shrink:0;}
