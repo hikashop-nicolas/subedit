@@ -296,8 +296,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private rightEl!: HTMLDivElement;
   private player: MediaPlayerHandle | null = null;
   private video: HTMLMediaElement | null = null;
-  private mediaBytes: Uint8Array | null = null; // retained for auto-transcription
-  private mediaFile: File | null = null; // the original file, streamed on save (no in-memory copy)
+  private mediaFile: File | null = null; // the original file; streamed from disk (never held whole in RAM)
+  private mediaContainer: "mkv" | "mp4" = "mp4"; // detected at load, for save-into-video
   private timeline: Timeline | null = null;
   private waveAbort: AbortController | null = null;
   private waveStatusEl: HTMLDivElement | null = null;
@@ -1901,7 +1901,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private openTranscribe(): void {
     void import("./transcribe/ui").then(({ openTranscribeDialog }) => {
       openTranscribeDialog({
-        mediaBytes: () => this.mediaBytes,
+        mediaFile: () => this.mediaFile,
         hasCues: () => this.doc.cues.length > 0,
         onResult: (cues, mode) => this.insertTranscribedCues(cues, mode),
       });
@@ -1916,14 +1916,13 @@ class SubtitleEditor implements SubtitleEditorHandle {
   // it. When the File System Access API is available the output streams straight to the
   // chosen file (so multi-GB saves never buffer in RAM); otherwise it downloads a blob.
   private async saveIntoVideo(): Promise<void> {
-    if (!this.mediaBytes) {
+    if (!this.mediaFile) {
       this.toast(t("saveVideoNeedsMedia"));
       return;
     }
-    const bytes = this.mediaBytes;
-    // Save back into the source's container. MKV keeps ASS tracks styled (S_TEXT/ASS); MP4
-    // and everything else can only hold plain-text WebVTT.
-    const container = bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3 ? "mkv" : "mp4";
+    // Save back into the source's container (detected at load). MKV keeps ASS tracks styled
+    // (S_TEXT/ASS); MP4 and everything else can only hold plain-text WebVTT.
+    const container = this.mediaContainer;
 
     // Ask for the destination file FIRST, before serializing the tracks: serializing thousands
     // of cues across tracks can take long enough to expire the click's transient user
@@ -1952,10 +1951,9 @@ class SubtitleEditor implements SubtitleEditorHandle {
       lastTick = now;
       this.countEl.textContent = `${t("savingVideo")} ${(written / 1e6).toFixed(1)} MB`;
     };
-    // Stream from the original File (disk-backed, no in-memory copy) when we have it; fall back
-    // to the retained bytes otherwise. Copying a multi-GB Uint8Array into a Blob can blow the
-    // ArrayBuffer allocation limit ("Array buffer allocation failed").
-    const media = this.mediaFile ?? bytes;
+    // Stream from the original File (disk-backed); BlobSource reads it on demand, so a multi-GB
+    // save never buffers the source in RAM.
+    const media = this.mediaFile;
     try {
       const { muxIntoContainer, muxToFile } = await import("./mux");
       if (handle) {
@@ -2335,11 +2333,14 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.rightEl.textContent = "";
     const host = el("div", "se-playerhost") as HTMLDivElement;
     this.rightEl.appendChild(host);
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    this.mediaBytes = bytes;
     this.mediaFile = file;
+    // Read the file into memory only transiently, for the one-time embedded-track + waveform
+    // extraction; it is not retained, so the file doesn't sit in RAM during editing. The player
+    // gets the disk-backed File and streams from it.
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    this.mediaContainer = bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3 ? "mkv" : "mp4";
     this.loadEmbeddedTracks(bytes); // before the player, so subs load even if it can't decode the media
-    this.player = createMediaPlayer(host, { bytes, mime: file.type, filename: file.name }, { embedded: true });
+    this.player = createMediaPlayer(host, { blob: file, mime: file.type, filename: file.name }, { embedded: true });
     const v = this.player.getMediaElement() ?? null;
     this.video = v;
     if (v) {

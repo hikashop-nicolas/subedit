@@ -8,7 +8,7 @@ import { segmentToCues, type SegCue } from "./segment";
 import { t } from "../i18n";
 
 export interface TranscribeHost {
-  mediaBytes(): Uint8Array | null; // the already-loaded preview media, if any
+  mediaFile(): File | null; // the already-loaded preview media file, if any (read on demand)
   hasCues(): boolean;
   onResult(cues: SegCue[], mode: "append" | "replace"): void;
 }
@@ -65,7 +65,9 @@ function injectCss(): void {
 
 export function openTranscribeDialog(host: TranscribeHost): void {
   injectCss();
-  let bytes: Uint8Array | null = host.mediaBytes();
+  // The loaded media stays on disk; read it into memory only when transcription actually runs.
+  const media: File | null = host.mediaFile();
+  let bytes: Uint8Array | null = null;
   let run: WhisperRun | null = null;
 
   const back = document.createElement("div");
@@ -89,7 +91,7 @@ export function openTranscribeDialog(host: TranscribeHost): void {
 
   // Media picker (only shown when nothing is loaded yet).
   let fileLabel: HTMLLabelElement | null = null;
-  if (!bytes) {
+  if (!media) {
     fileLabel = document.createElement("label");
     fileLabel.textContent = t("asrChooseMedia");
     const file = document.createElement("input");
@@ -215,6 +217,7 @@ export function openTranscribeDialog(host: TranscribeHost): void {
 
   startBtn.addEventListener("click", async () => {
     err.textContent = "";
+    if (!bytes && media) bytes = new Uint8Array(await media.arrayBuffer()); // read the file now
     if (!bytes) {
       err.textContent = t("asrNeedMedia");
       return;
