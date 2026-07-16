@@ -1,7 +1,8 @@
 // The "Auto-transcribe" dialog: pick a model + language, run Whisper on the loaded (or a
 // chosen) media file, and hand the resulting cues back to the editor. Keeps the heavy
 // transcribe modules (which pull in transformers.js) behind this lazily-imported file.
-import { WHISPER_MODELS, DEFAULT_WHISPER_MODEL, TRANSLATE_MODELS, DEFAULT_TRANSLATE_MODEL, TRANSLATE_LANGS } from "./backend";
+import { WHISPER_MODELS, DEFAULT_WHISPER_MODEL } from "./backend";
+import { TRANSLATE_MODELS, DEFAULT_TRANSLATE_MODEL, TRANSLATE_LANGS } from "localml/translate";
 import { runWhisper, type WhisperRun } from "./whisper";
 import { decodeToMono16k } from "./audio";
 import { segmentToCues, type SegCue } from "./segment";

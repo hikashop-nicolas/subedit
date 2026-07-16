@@ -46,7 +46,7 @@ import { setLocale, t, alignmentOptions } from "./i18n";
 import { Timeline } from "./waveform";
 import { createMediaPlayer, extractWaveformPeaks, extractMkvSubtitles, type MediaPlayerHandle, type MkvSubtitleTrack } from "mediaplay";
 import { extractMp4Subtitles } from "./mp4subs";
-import { runTranslate, type TranslateRun } from "./transcribe/translate";
+import { runTranslate, type TranslateRun } from "localml/translate";
 import { buildTranslationPlan, applyUniqueTranslation, rebuildCueText, type TranslationPlan } from "./translate-plan";
 
 export interface SubtitleInput {
