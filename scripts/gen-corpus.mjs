@@ -407,6 +407,18 @@ function main() {
     manifest.push(entry);
   }
 
+  // A real, tiny media file, so the mux checks can put subtitles into an actual container
+  // through the same code path the app uses rather than into a subtitle-only skeleton. Two
+  // seconds of 160x120 H.264 and a sine tone, about 11 KB.
+  execFileSync("ffmpeg", [
+    "-hide_banner", "-loglevel", "error", "-y",
+    "-f", "lavfi", "-i", "color=c=navy:s=160x120:r=10:d=2",
+    "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+    "-c:a", "aac", "-b:a", "32k", "-shortest",
+    join(OUT, "tiny.mp4"),
+  ]);
+
   rmSync(tmp, { recursive: true, force: true });
 
   writeFileSync(join(OUT, "truth.json"), JSON.stringify({ base: BASE, fine: FINE, overlap: OVERLAP, fps: FPS }, null, 2) + "\n");

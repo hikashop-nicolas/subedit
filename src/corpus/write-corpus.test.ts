@@ -16,7 +16,10 @@ import type { SubtitleFormat } from "../cue";
 import { convertDoc, parseSubtitles, serializeSubtitles } from "../formats/index";
 import { fixtureText, manifest } from "./fixtures";
 
-const OUT = new URL("../../.cache/written/", import.meta.url).pathname;
+// Its own directory, wiped on every run: two tests sharing one would have each other's
+// stale output to validate, and a check that passes against a file the current run did
+// not write is worse than no check.
+const OUT = new URL("../../.cache/written/formats/", import.meta.url).pathname;
 
 // The filename each format is written under, which is also what the check reads back. The
 // extension matters: it is how the readers on the other side pick a demuxer.

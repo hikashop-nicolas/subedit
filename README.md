@@ -156,6 +156,7 @@ the Python venv the scripts look for), plus **xmllint**.
 npm run corpus         # rebuild test-corpus/, revalidating every fixture against ffmpeg/pysubs2
 npm run check:writers  # convert into all 18 formats, read each back with an outside reader
 npm run check:xml      # the XML subedit writes must actually parse as XML
+npm run check:mux      # ffprobe the containers "save into the video" produces
 ```
 
 **Why the corpus is not written by subedit.** A unit test that parses a string written three

@@ -138,10 +138,35 @@ async function runMux(media: MuxMedia, subs: MuxSubtitle[], container: MuxContai
     }
     if (best < 0) break;
     const p = heads[best] as EncodedPacket;
-    await copies[best].add(p, started[best] ? undefined : copies[best].meta);
-    started[best] = true;
+    const packet = presentable(p);
+    if (packet) {
+      await copies[best].add(packet, started[best] ? undefined : copies[best].meta);
+      started[best] = true;
+    }
     heads[best] = await copies[best].sink.getNextPacket(p);
     if (!heads[best]) copies[best].close(); // track exhausted; don't let it stall the muxer
   }
   await output.finalize();
+}
+
+/**
+ * A packet as it should appear in the output, or null if it is pre-roll that is never shown.
+ *
+ * An AAC track in an MP4 starts one frame BEFORE zero: the encoder's priming, which the file's
+ * edit list tells a player to discard. That is not an edge case, it is what ffmpeg and every
+ * hardware encoder produce, so most .mp4 files with sound have it. mediabunny refuses a
+ * negative timestamp outright, which meant saving subtitles back into an ordinary video threw
+ * "Timestamps must be non-negative" and wrote nothing at all.
+ *
+ * Dropping a packet that ends at or before zero reproduces exactly what the source presents,
+ * and cannot discard anything audible, because a player was already told not to play it. A
+ * packet straddling zero is kept and clipped, so no real content is lost either way.
+ *
+ * Not handled: a file whose timestamps are ALL negative, which would want shifting rather than
+ * dropping. Raw transport-stream captures can look like that; nothing subedit opens has.
+ */
+function presentable(p: EncodedPacket): EncodedPacket | null {
+  if (p.timestamp >= 0) return p;
+  if (p.timestamp + p.duration <= 0) return null;
+  return p.clone({ timestamp: 0, duration: p.timestamp + p.duration });
 }

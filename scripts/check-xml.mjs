@@ -18,7 +18,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const WRITTEN = join(new URL("..", import.meta.url).pathname, ".cache/written");
+const WRITTEN = join(new URL("..", import.meta.url).pathname, ".cache/written/formats");
 
 // Files that must parse as XML, and what has to be in them. The structure assertions are
 // deliberately shallow: enough that a file emptied of its cues, or written with the wrong root
@@ -50,7 +50,7 @@ const NOT_XML = ["out.smi"];
 
 function main() {
   if (!existsSync(WRITTEN)) {
-    console.error("No .cache/written: run `vitest run src/corpus/write-corpus.test.ts` first.");
+    console.error("No output directory: run `vitest run src/corpus/write-corpus.test.ts` first.");
     process.exit(1);
   }
 

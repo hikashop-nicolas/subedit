@@ -70,6 +70,9 @@ jobs:
       # What subedit WRITES, read back by tools that share no code with it.
       - run: npm run check:writers
       - run: npm run check:xml
+      # And what it muxes: ffprobe on the containers, and the cues pulled back out of the
+      # one subtitle track ffmpeg can read.
+      - run: npm run check:mux
 
   # The editor itself, in a real browser. Everything above runs in node against strings, and
   # editor.ts is both the largest file here and the one nothing else can reach: it only ever

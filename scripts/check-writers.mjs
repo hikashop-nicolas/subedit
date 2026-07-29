@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { ORACLES, normalizeText, readWithOracle, xmlEscape } from "./oracles.mjs";
 
 const ROOT = new URL("..", import.meta.url).pathname;
-const WRITTEN = join(ROOT, ".cache/written");
+const WRITTEN = join(ROOT, ".cache/written/formats");
 const CORPUS = join(ROOT, "test-corpus");
 
 // Must match TARGETS in src/corpus/write-corpus.test.ts.
@@ -55,7 +55,7 @@ const SPACE_JOINED = new Set(["lrc"]);
 
 function main() {
   if (!existsSync(WRITTEN)) {
-    console.error("No .cache/written: run `vitest run src/corpus/write-corpus.test.ts` first.");
+    console.error("No output directory: run `vitest run src/corpus/write-corpus.test.ts` first.");
     process.exit(1);
   }
   const truth = JSON.parse(readFileSync(join(CORPUS, "truth.json"), "utf8")).base;

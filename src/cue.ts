@@ -135,17 +135,42 @@ export function decodeCharRefs(text: string): string {
   return text.replace(/&(?:amp|lt|gt|nbsp|lrm|rlm);/g, (m) => CHAR_REFS[m]);
 }
 
-// The inverse, for text moving INTO WebVTT.
-//
-// "&" is escaped unless it already begins a reference, so converting back and forth does not
-// accumulate "&amp;amp;". "<" is escaped only where it cannot be a tag: WebVTT gives "<" the
-// job of opening <i>, <b>, <c.class> and <00:01.000>, and escaping those would turn working
-// markup into visible angle brackets. A "<" followed by anything else (a space, a digit-then-
-// non-colon, punctuation) is a literal, and left raw it truncates the cue at the next ">".
+// A tag WebVTT understands: <i>, </b>, <c.yellow>, <v Bob>, or a <00:01.000> timestamp.
+const VTT_TAG = /^<\/?(?:[a-zA-Z][^>]*|\d{1,3}:\d{2}(?:[.:]\d{1,3})?(?::\d{2}(?:\.\d{1,3})?)?)>/;
+
+/**
+ * The inverse of decodeCharRefs, for text moving INTO WebVTT.
+ *
+ * Scanning rather than replacing, because whether "<" and ">" need escaping depends on where
+ * they are. WebVTT gives them the job of delimiting <i>, <c.class> and <00:01.000>, so
+ * escaping every one would turn working markup into visible angle brackets; leaving every one
+ * raw produces a file whose cue text a reader silently truncates or drops characters from.
+ * A tag is therefore copied through whole, and any other angle bracket is escaped.
+ *
+ * "&" is escaped unless it already begins a reference, so converting back and forth does not
+ * accumulate "&amp;amp;".
+ */
 export function encodeCharRefs(text: string): string {
-  return text
-    .replace(/&(?!(?:amp|lt|gt|nbsp|lrm|rlm);)/g, "&amp;")
-    .replace(/<(?![/a-zA-Z]|\d+:)/g, "&lt;");
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "<") {
+      const tag = text.slice(i).match(VTT_TAG)?.[0];
+      if (tag) {
+        out += tag;
+        i += tag.length - 1;
+      } else {
+        out += "&lt;";
+      }
+    } else if (ch === ">") {
+      out += "&gt;";
+    } else if (ch === "&") {
+      out += /^&(?:amp|lt|gt|nbsp|lrm|rlm);/.test(text.slice(i)) ? "&" : "&amp;";
+    } else {
+      out += ch;
+    }
+  }
+  return out;
 }
 
 // Visible-character count (markup and newlines removed), used for CPS / line-length.
