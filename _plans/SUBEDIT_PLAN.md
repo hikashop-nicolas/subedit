@@ -438,3 +438,63 @@ translate mode (two-column original/translation).
   libs; verify fixes in the consumer's node_modules dist).
 - ASS files in the wild are messy (mixed encodings, duplicate sections);
   parser must be lenient on read, conservative on write.
+
+## Verification and CI (2026-07-29)
+
+Before this, every format test parsed a string written a few lines above the assertion,
+so the suite could only show subedit agreeing with itself: a file no other player
+understands passed all 121 of them. And `editor.ts`, the largest file here, had no test
+of any kind, because everything it does it does to the DOM.
+
+What runs now, in three CI jobs:
+
+- **test** — the unit suite plus the corpus tests (read, preserve, write).
+- **oracles** — rebuilds and re-validates the corpus against ffmpeg and pysubs2, then
+  checks what subedit *writes*: 13 of the 18 formats read back by an independent reader,
+  the XML formats through xmllint, and the muxed MKV/MP4 through ffprobe.
+- **e2e** — 16 Cypress specs driving the real editor in Chrome.
+
+**The corpus is never authored by subedit.** ffmpeg writes the fixtures it has a muxer
+for; the rest are written from the format's definition and then have to be recovered
+correctly by an independent reader before being accepted as ground truth. Five formats
+(SBV, Spruce, QuickTime Text, DVD Studio Pro, TTXT) have no such reader and are marked in
+`test-corpus/manifest.json` as golden files rather than left looking verified.
+
+**Which reader is authoritative was measured, not assumed**, and the disqualifying
+findings are recorded in `scripts/oracles.mjs`: ffmpeg's WebVTT muxer does not escape
+`<` or `&`, its SAMI reader does not decode them, pysubs2's WebVTT reader does not
+either, and ffmpeg's Spruce reader treats the frame field as hundredths of a second
+whatever the file declares.
+
+### Defects it found, all fixed
+
+- WebVTT character references counted as literal text, so `&amp;` read as five characters
+  in the reading-speed figure and converting to any other format carried the escaping
+  through as visible text. Converting *into* WebVTT then left a bare `>`, which a stricter
+  ffmpeg than the local build refused; escaping is now decided by scanning, since the same
+  `<` is markup in `<i>` and a literal in `5 < 4`.
+- SBV put the file's trailing newline inside the last cue.
+- TTXT wrote a line break as `&#10;` and had no numeric-reference decoding, so saving a
+  multi-line cue twice turned the break into a literal `&#10;` mid-line.
+- SubViewer trimmed the blank line after `[SUBTITLE]`, adding one back on save to every
+  file that did not have one.
+- Converting to a frame-based format wrote no frame rate, leaving every time in the file
+  dependent on the reader guessing the same default.
+- Muxing into an ordinary MP4 threw `Timestamps must be non-negative` and wrote nothing,
+  because an AAC track starts one frame before zero (encoder priming). Most .mp4 files
+  with sound have it, so this was not an edge case.
+
+### Left open, deliberately
+
+- **`S_TEXT/WEBVTT` in Matroska.** mediabunny writes that codec ID; libavformat knows only
+  the `D_WEBVTT/*` family, so ffmpeg cannot identify or extract the track, and a track
+  ffmpeg cannot identify is one many players cannot show. Changing it means changing the
+  mediabunny fork, which is a call about interop against the current registry rather than
+  a bug fix. subedit's own styled path (ASS in MKV) is unaffected and reads perfectly.
+- **WebVTT in MP4** is checked structurally only. mediabunny writes a conformant `wvtt`
+  sample entry with its `vttC` config, and ffmpeg has simply never demuxed it (no
+  occurrence of `wvtt` in libavformat), so there is no reader here to confirm the payload.
+- **A file whose timestamps are all negative** would want shifting rather than dropping
+  pre-roll. Raw transport-stream captures can look like that; nothing subedit opens has.
+- **Five formats have no independent reader at all.** Finding or writing one for SBV,
+  Spruce, QuickTime Text, DVD Studio Pro or TTXT would close the last real gap.
