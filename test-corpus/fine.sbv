@@ -1,0 +1,8 @@
+0:00:01.234,0:00:03.456
+Millisecond precision
+
+0:00:03.457,0:00:05.999
+Adjacent to the previous cue
+
+0:59:59.999,1:00:00.001
+Straddling the hour boundary

@@ -1,0 +1,10 @@
+WEBVTT
+
+00:00:01.234 --> 00:00:03.456
+Millisecond precision
+
+00:00:03.457 --> 00:00:05.999
+Adjacent to the previous cue
+
+00:59:59.999 --> 01:00:00.001
+Straddling the hour boundary

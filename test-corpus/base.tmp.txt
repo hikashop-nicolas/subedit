@@ -1,0 +1,6 @@
+00:00:01:Hello, world.
+00:00:04:Two lines here|and a second line
+00:00:07:Accentué ça va 日本語 مرحبا
+00:00:10:He said "quoted" and 5 > 3 & 2 < 4
+00:00:13:A deliberately long single line of dialogue used to exercise the characters-per-second reading
+01:02:03:Past the hour mark

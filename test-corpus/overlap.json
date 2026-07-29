@@ -1,0 +1,12 @@
+[
+  {
+    "start": 1000,
+    "end": 5000,
+    "text": "The first speaker, still going"
+  },
+  {
+    "start": 3000,
+    "end": 7000,
+    "text": "The second speaker, interrupting"
+  }
+]

@@ -1,0 +1,19 @@
+<SAMI>
+<HEAD>
+<TITLE>subedit corpus</TITLE>
+</HEAD>
+<BODY>
+<SYNC Start=1000><P Class=ENCC>Hello, world.
+<SYNC Start=3000><P Class=ENCC>&nbsp;
+<SYNC Start=4000><P Class=ENCC>Two lines here<br>and a second line
+<SYNC Start=6000><P Class=ENCC>&nbsp;
+<SYNC Start=7000><P Class=ENCC>Accentué ça va 日本語 مرحبا
+<SYNC Start=9000><P Class=ENCC>&nbsp;
+<SYNC Start=10000><P Class=ENCC>He said "quoted" and 5 &gt; 3 &amp; 2 &lt; 4
+<SYNC Start=12000><P Class=ENCC>&nbsp;
+<SYNC Start=13000><P Class=ENCC>A deliberately long single line of dialogue used to exercise the characters-per-second reading
+<SYNC Start=16000><P Class=ENCC>&nbsp;
+<SYNC Start=3723000><P Class=ENCC>Past the hour mark
+<SYNC Start=3725000><P Class=ENCC>&nbsp;
+</BODY>
+</SAMI>

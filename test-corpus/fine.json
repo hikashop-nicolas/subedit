@@ -1,0 +1,17 @@
+[
+  {
+    "start": 1234,
+    "end": 3456,
+    "text": "Millisecond precision"
+  },
+  {
+    "start": 3457,
+    "end": 5999,
+    "text": "Adjacent to the previous cue"
+  },
+  {
+    "start": 3599999,
+    "end": 3600001,
+    "text": "Straddling the hour boundary"
+  }
+]

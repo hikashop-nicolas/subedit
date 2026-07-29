@@ -1,0 +1,64 @@
+{
+  "base": [
+    {
+      "start": 1000,
+      "end": 3000,
+      "text": "Hello, world."
+    },
+    {
+      "start": 4000,
+      "end": 6000,
+      "text": "Two lines here\nand a second line"
+    },
+    {
+      "start": 7000,
+      "end": 9000,
+      "text": "Accentué ça va 日本語 مرحبا"
+    },
+    {
+      "start": 10000,
+      "end": 12000,
+      "text": "He said \"quoted\" and 5 > 3 & 2 < 4"
+    },
+    {
+      "start": 13000,
+      "end": 16000,
+      "text": "A deliberately long single line of dialogue used to exercise the characters-per-second reading"
+    },
+    {
+      "start": 3723000,
+      "end": 3725000,
+      "text": "Past the hour mark"
+    }
+  ],
+  "fine": [
+    {
+      "start": 1234,
+      "end": 3456,
+      "text": "Millisecond precision"
+    },
+    {
+      "start": 3457,
+      "end": 5999,
+      "text": "Adjacent to the previous cue"
+    },
+    {
+      "start": 3599999,
+      "end": 3600001,
+      "text": "Straddling the hour boundary"
+    }
+  ],
+  "overlap": [
+    {
+      "start": 1000,
+      "end": 5000,
+      "text": "The first speaker, still going"
+    },
+    {
+      "start": 3000,
+      "end": 7000,
+      "text": "The second speaker, interrupting"
+    }
+  ],
+  "fps": 25
+}

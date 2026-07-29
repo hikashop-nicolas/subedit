@@ -31,7 +31,11 @@ export function parseSbv(raw: string): SubtitleDoc {
     const startMs = parseSbvTime(a ?? "");
     const endMs = parseSbvTime(b ?? "");
     if (Number.isNaN(startMs) || Number.isNaN(endMs)) continue;
-    cues.push({ id: newCueId(), startMs, endMs, text: lines.slice(1).join("\n") });
+    // Drop the empty lines a trailing newline leaves behind: they are the file ending, not
+    // part of the last cue, and keeping them inflates its text and its reading speed.
+    const text = lines.slice(1);
+    while (text.length && text[text.length - 1].trim() === "") text.pop();
+    cues.push({ id: newCueId(), startMs, endMs, text: text.join("\n") });
   }
   return { format: "sbv", cues, eol, bom, finalNewline };
 }

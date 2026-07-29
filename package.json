@@ -29,6 +29,10 @@
     "dev": "npm run assets && vite",
     "preview": "vite preview",
     "test": "vitest run",
+    "corpus": "node scripts/gen-corpus.mjs",
+    "check:writers": "vitest run src/corpus/write-corpus.test.ts && node scripts/check-writers.mjs",
+    "check:xml": "vitest run src/corpus/write-corpus.test.ts && node scripts/check-xml.mjs",
+    "check:setup": "python3 -m venv .cache/py && .cache/py/bin/pip install --quiet pysubs2",
     "prepare": "tsc -p tsconfig.json && node scripts/fix-worker-urls.mjs"
   },
   "dependencies": {

@@ -1,0 +1,32 @@
+[
+  {
+    "start": 1000,
+    "end": 3000,
+    "text": "Hello, world."
+  },
+  {
+    "start": 4000,
+    "end": 6000,
+    "text": "Two lines here\nand a second line"
+  },
+  {
+    "start": 7000,
+    "end": 9000,
+    "text": "Accentué ça va 日本語 مرحبا"
+  },
+  {
+    "start": 10000,
+    "end": 12000,
+    "text": "He said \"quoted\" and 5 > 3 & 2 < 4"
+  },
+  {
+    "start": 13000,
+    "end": 16000,
+    "text": "A deliberately long single line of dialogue used to exercise the characters-per-second reading"
+  },
+  {
+    "start": 3723000,
+    "end": 3725000,
+    "text": "Past the hour mark"
+  }
+]

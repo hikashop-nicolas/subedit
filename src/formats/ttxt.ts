@@ -13,14 +13,22 @@ function sampleTimeMs(v: string): number | null {
   return ((h * 60 + +m[2]) * 60 + +m[3]) * 1000 + +m[4].padEnd(3, "0").slice(0, 3);
 }
 function unesc(s: string): string {
-  return s
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&amp;/g, "&");
+  return (
+    s
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      // Numeric references, which is how a line break survives inside a text="..." attribute:
+      // it can only be written as &#10;, so a reader that does not resolve them turns every
+      // multi-line cue into one line with a literal "&#10;" in the middle of it.
+      .replace(/&#(\d+);/g, (_, d: string) => String.fromCodePoint(+d))
+      .replace(/&#x([0-9a-f]+);/gi, (_, h: string) => String.fromCodePoint(parseInt(h, 16)))
+      // Last, so an escaped "&amp;#10;" stays text rather than becoming a break.
+      .replace(/&amp;/g, "&")
+  );
 }
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

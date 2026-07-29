@@ -1,0 +1,7 @@
+1
+00:00:01,000 --> 00:00:05,000
+The first speaker, still going
+
+2
+00:00:03,000 --> 00:00:07,000
+The second speaker, interrupting

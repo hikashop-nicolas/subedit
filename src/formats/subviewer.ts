@@ -25,10 +25,12 @@ export function parseSubViewer(raw: string): SubtitleDoc {
   const eol = detectEol(body);
   const finalNewline = /\r?\n$/.test(body);
   const lines = body.split(/\r?\n/);
-  // The header is everything before the first timing line (bracket tags, blank lines).
+  // The header is everything before the first timing line (bracket tags, blank lines), kept
+  // exactly as written: whether a blank line follows [SUBTITLE] varies between files, and
+  // trimming it here means every file that lacked one gets one added back on save.
   let firstCue = lines.findIndex((l) => TIME_LINE.test(l));
   if (firstCue < 0) firstCue = lines.length;
-  const header = lines.slice(0, firstCue).join(eol).replace(/\s+$/, "");
+  const header = lines.slice(0, firstCue).join(eol);
   const cues: Cue[] = [];
   for (let i = firstCue; i < lines.length; i += 1) {
     const m = lines[i].match(TIME_LINE);
@@ -49,13 +51,11 @@ export function parseSubViewer(raw: string): SubtitleDoc {
 
 export function serializeSubViewer(doc: SubtitleDoc): string {
   const eol = doc.eol;
-  const parts: string[] = [];
-  if (doc.header) parts.push(doc.header);
   const blocks = doc.cues.map(
     (c) => `${svTime(c.startMs)},${svTime(c.endMs)}${eol}${c.text.replace(/\r?\n/g, "[br]")}`,
   );
-  parts.push(blocks.join(eol + eol));
-  let out = parts.join(eol + eol);
+  // A single separator: the header already carries however many blank lines followed it.
+  let out = (doc.header ? doc.header + eol : "") + blocks.join(eol + eol);
   if (doc.finalNewline) out += eol;
   return (doc.bom ? "﻿" : "") + out;
 }

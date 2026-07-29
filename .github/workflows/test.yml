@@ -6,6 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  # @huggingface/transformers pulls onnxruntime-node, whose install downloads a large GPU
+  # binary from nuget.org. subedit is browser-only and never loads the Node binding, so the
+  # download is 210 MB of nothing, and a slow nuget.org is a failed run with nothing wrong.
+  ONNXRUNTIME_NODE_INSTALL: skip
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -15,7 +21,52 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - run: npm ci
+      # npm ci reaches the registry and GitHub, for three git-hosted libs (mediaplay,
+      # mediabunny, localml). A timeout there is the commonest cause of a failed run that has
+      # nothing wrong with it, so retry before giving up.
+      - name: Install dependencies
+        run: |
+          for attempt in 1 2 3; do
+            npm ci && exit 0
+            echo "npm ci failed (attempt $attempt), retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          echo "npm ci failed after 3 attempts"
+          exit 1
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  # What subedit WRITES, judged by tools that share no code with it. Its own tests can only
+  # prove it reads back what it wrote; these prove a subtitle file it produces is one the
+  # rest of the world understands.
+  oracles:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install dependencies
+        run: |
+          for attempt in 1 2 3; do
+            npm ci && exit 0
+            echo "npm ci failed (attempt $attempt), retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          echo "npm ci failed after 3 attempts"
+          exit 1
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg libxml2-utils
+      # pysubs2 is the second reader, in another language, sharing no code with this one.
+      # Installed where scripts/oracles.mjs expects to find it.
+      - run: python3 -m venv .cache/py && .cache/py/bin/pip install --quiet pysubs2
+      # The corpus is committed, so this does not build the fixtures the tests run against: it
+      # rebuilds them from scratch and re-validates every one against ffmpeg and pysubs2, which
+      # is what catches a fixture that has drifted from what the outside world reads it as.
+      - run: npm run corpus
+      - run: git diff --exit-code --stat test-corpus
+      # What subedit WRITES, read back by tools that share no code with it.
+      - run: npm run check:writers
+      - run: npm run check:xml
+

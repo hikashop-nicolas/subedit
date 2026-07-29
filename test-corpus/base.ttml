@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<tt
+  xmlns="http://www.w3.org/ns/ttml"
+  xmlns:ttm="http://www.w3.org/ns/ttml#metadata"
+  xmlns:tts="http://www.w3.org/ns/ttml#styling"
+  xmlns:ttp="http://www.w3.org/ns/ttml#parameter"
+  ttp:cellResolution="384 288"
+  xml:lang="">
+  <head>
+    <layout>
+      <region xml:id="Default"
+        tts:origin="3% 0%"
+        tts:extent="97% 97%"
+        tts:displayAlign="after"
+        tts:textAlign="center"
+        tts:fontSize="16c"
+        tts:fontFamily="Arial"
+        tts:overflow="visible" />
+    </layout>
+  </head>
+  <body>
+    <div>
+      <p
+        begin="00:00:01.000"
+        end="00:00:03.000"><span region="Default">Hello, world.</span></p>
+      <p
+        begin="00:00:04.000"
+        end="00:00:06.000"><span region="Default">Two lines here<br/>and a second line</span></p>
+      <p
+        begin="00:00:07.000"
+        end="00:00:09.000"><span region="Default">Accentué ça va 日本語 مرحبا</span></p>
+      <p
+        begin="00:00:10.000"
+        end="00:00:12.000"><span region="Default">He said "quoted" and 5 &gt; 3 &amp; 2 &lt; 4</span></p>
+      <p
+        begin="00:00:13.000"
+        end="00:00:16.000"><span region="Default">A deliberately long single line of dialogue used to exercise the characters-per-second reading</span></p>
+      <p
+        begin="01:02:03.000"
+        end="01:02:05.000"><span region="Default">Past the hour mark</span></p>
+    </div>
+  </body>
+</tt>

@@ -1,7 +1,7 @@
 // Format dispatch: pick a parser/serializer from the filename or content, and expose
 // a single parse/serialize pair the editor uses regardless of the underlying format.
 
-import type { Cue, SubtitleDoc, SubtitleFormat } from "../cue";
+import { type Cue, type SubtitleDoc, type SubtitleFormat, decodeCharRefs, encodeCharRefs } from "../cue";
 import { parseSrt, serializeSrt } from "./srt";
 import { parseVtt, serializeVtt } from "./vtt";
 import { parseAss, serializeAss, defaultAssParts, ASS_EVENT_FORMAT, DEFAULT_STYLE_FORMAT } from "./ass";
@@ -106,6 +106,18 @@ export function serializeSubtitles(doc: SubtitleDoc): string {
   return serializeSrt(doc);
 }
 
+// Formats whose timecodes are frame numbers rather than times.
+const FRAME_BASED = new Set<SubtitleFormat>(["sub", "spruce", "dvdsp"]);
+
+// The rate to declare when converting into one of them and the source had none to carry over.
+//
+// Not the same as the rate each format ASSUMES when a file stays silent (23.976 for MicroDVD,
+// 25 for the other two): that one has to keep reading existing files the way it always has.
+// This one is a free choice, and 25 is the better one, because a whole second is exactly 25
+// frames while at 23.976 it is 23.976 of them. Writing 23.976 would land every whole-second
+// cue a millisecond out, for no reason other than an arbitrary default.
+const CONVERT_FPS = 25;
+
 // Strip ASS override tags and normalize \N line breaks, for converting ASS text to the
 // plain text SRT/VTT expect.
 function plainFromAss(text: string): string {
@@ -118,12 +130,22 @@ export function convertDoc(doc: SubtitleDoc, target: SubtitleFormat): SubtitleDo
   if (doc.format === target) return doc;
   const next: SubtitleDoc = { ...doc, format: target };
   const fromAss = doc.format === "ass";
+  // VTT stores "&amp;" and "&lt;" escaped, and is the only text-verbatim format that does.
+  // Carrying them into a format with no character references would show them literally, and
+  // carrying a bare "&" into VTT would leave a file that does not conform.
+  const fromVtt = doc.format === "vtt";
+  const toVtt = target === "vtt";
   next.assFormat = undefined;
   next.assStyleFormat = undefined;
   next.assScriptInfo = undefined;
   next.assStylesTail = undefined;
   next.styles = undefined;
-  next.fps = target === "sub" || target === "spruce" || target === "dvdsp" ? doc.fps : undefined;
+  // A frame-based target needs a frame rate written into the file. Converting from a
+  // time-based format there is nothing to carry over, and leaving it out makes every time in
+  // the file depend on whatever rate the reader happens to assume: at 25 against 23.976 that
+  // is a drift of 4%, over two seconds by the end of a film. So declare one rather than
+  // leave the file ambiguous.
+  next.fps = FRAME_BASED.has(target) ? (doc.fps ?? CONVERT_FPS) : undefined;
 
   if (target === "ass") {
     const parts = defaultAssParts(doc.eol);
@@ -139,7 +161,7 @@ export function convertDoc(doc: SubtitleDoc, target: SubtitleFormat): SubtitleDo
       identifier: undefined,
       settings: undefined,
       notesBefore: undefined,
-      text: c.text.replace(/\r?\n/g, "\\N"),
+      text: (fromVtt ? decodeCharRefs(c.text) : c.text).replace(/\r?\n/g, "\\N"),
       assKind: "Dialogue" as const,
       assFields: { Layer: "0", Style: "Default", Name: "", MarginL: "0", MarginR: "0", MarginV: "0", Effect: "" },
     }));
@@ -158,7 +180,13 @@ export function convertDoc(doc: SubtitleDoc, target: SubtitleFormat): SubtitleDo
       notesBefore: undefined,
       assKind: undefined,
       assFields: undefined,
-      text: fromAss ? plainFromAss(c.text) : c.text,
+      text: toVtt
+        ? encodeCharRefs(fromAss ? plainFromAss(c.text) : c.text)
+        : fromAss
+          ? plainFromAss(c.text)
+          : fromVtt
+            ? decodeCharRefs(c.text)
+            : c.text,
     }));
   return next;
 }

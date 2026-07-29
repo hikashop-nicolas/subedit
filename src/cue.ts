@@ -119,14 +119,45 @@ export function formatTimestamp(ms: number, sep: "," | "." = ","): string {
   return `${p(hours)}:${p(minutes)}:${p(seconds)}${sep}${p(millis, 3)}`;
 }
 
-// Visible-character count (markup and newlines removed), used for CPS / line-length.
-export function visibleText(text: string): string {
+// The six character references WebVTT defines. Formats that keep their text verbatim (VTT,
+// and SRT as it is written in practice) store these escaped, so anything counting or speaking
+// the text has to resolve them first or it sees "&amp;" as five characters instead of one.
+const CHAR_REFS: Record<string, string> = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&nbsp;": " ",
+  "&lrm;": "\u200e",
+  "&rlm;": "\u200f",
+};
+
+export function decodeCharRefs(text: string): string {
+  return text.replace(/&(?:amp|lt|gt|nbsp|lrm|rlm);/g, (m) => CHAR_REFS[m]);
+}
+
+// The inverse, for text moving INTO WebVTT.
+//
+// "&" is escaped unless it already begins a reference, so converting back and forth does not
+// accumulate "&amp;amp;". "<" is escaped only where it cannot be a tag: WebVTT gives "<" the
+// job of opening <i>, <b>, <c.class> and <00:01.000>, and escaping those would turn working
+// markup into visible angle brackets. A "<" followed by anything else (a space, a digit-then-
+// non-colon, punctuation) is a literal, and left raw it truncates the cue at the next ">".
+export function encodeCharRefs(text: string): string {
   return text
+    .replace(/&(?!(?:amp|lt|gt|nbsp|lrm|rlm);)/g, "&amp;")
+    .replace(/<(?![/a-zA-Z]|\d+:)/g, "&lt;");
+}
+
+// Visible-character count (markup and newlines removed), used for CPS / line-length.
+// Tags are stripped before the references are resolved, never after: a resolved "&lt;" is an
+// ordinary character, and running the tag pattern over it would let a literal "<" swallow
+// everything up to the next ">".
+export function visibleText(text: string): string {
+  const stripped = text
     .replace(/<[^>]*>/g, "") // <i>, <b>, <c.class>, ...
     .replace(/\{[^}]*\}/g, "") // ASS-style override tags if present
-    .replace(/\\[Nnh]/g, " ") // ASS line breaks (\N, \n) and hard space (\h)
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/\\[Nnh]/g, " "); // ASS line breaks (\N, \n) and hard space (\h)
+  return decodeCharRefs(stripped).replace(/\s+/g, " ").trim();
 }
 
 // ASS timestamp: "H:MM:SS.cc" (1-digit hour, centisecond precision).

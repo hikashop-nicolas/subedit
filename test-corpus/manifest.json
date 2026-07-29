@@ -1,0 +1,323 @@
+[
+  {
+    "name": "base.srt",
+    "format": "srt",
+    "author": "hand",
+    "oracle": {
+      "kind": "ffmpeg",
+      "id": "srt"
+    },
+    "cues": 6
+  },
+  {
+    "name": "base.ass",
+    "format": "ass",
+    "author": "ffmpeg",
+    "oracle": {
+      "kind": "pysubs2",
+      "id": "ass"
+    },
+    "cues": 6
+  },
+  {
+    "name": "base.vtt",
+    "format": "vtt",
+    "author": "hand",
+    "oracle": {
+      "kind": "ffmpeg",
+      "id": "webvtt"
+    },
+    "cues": 6
+  },
+  {
+    "name": "base.ttml",
+    "format": "ttml",
+    "author": "ffmpeg",
+    "oracle": {
+      "kind": "pysubs2",
+      "id": "ttml"
+    },
+    "cues": 6
+  },
+  {
+    "name": "base.sub",
+    "format": "sub",
+    "author": "hand",
+    "oracle": {
+      "kind": "ffmpeg",
+      "id": "microdvd"
+    },
+    "cues": 6
+  },
+  {
+    "name": "base.mpl2",
+    "format": "mpl2",
+    "author": "hand",
+    "oracle": {
+      "kind": "ffmpeg",
+      "id": "mpl2"
+    },
+    "cues": 6
+  },
+  {
+    "name": "base.subviewer.sub",
+    "format": "subviewer",
+    "author": "hand",
+    "oracle": {
+      "kind": "ffmpeg",
+      "id": "subviewer"
+    },
+    "cues": 6
+  },
+  {
+    "name": "spaced.subviewer.sub",
+    "format": "subviewer",
+    "author": "hand",
+    "writerOpts": {
+      "blankAfterHeader": true
+    },
+    "oracle": {
+      "kind": "ffmpeg",
+      "id": "subviewer"
+    },
+    "cues": 6
+  },
+  {
+    "name": "base.smi",
+    "format": "sami",
+    "author": "hand",
+    "oracle": {
+      "kind": "ffmpeg",
+      "id": "sami",
+      "blind": "entities"
+    },
+    "cues": 6
+  },
+  {
+    "name": "base.stl",
+    "format": "spruce",
+    "author": "hand",
+    "oracle": null,
+    "cues": 6
+  },
+  {
+    "name": "base.dvdsp.txt",
+    "format": "dvdsp",
+    "author": "hand",
+    "oracle": null,
+    "cues": 6
+  },
+  {
+    "name": "base.tmp.txt",
+    "format": "tmp",
+    "author": "hand",
+    "oracle": {
+      "kind": "pysubs2",
+      "id": "tmp"
+    },
+    "carries": {
+      "ends": false
+    },
+    "cues": 6
+  },
+  {
+    "name": "base.sbv",
+    "format": "sbv",
+    "author": "hand",
+    "oracle": null,
+    "cues": 6
+  },
+  {
+    "name": "base.qt.txt",
+    "format": "qttext",
+    "author": "hand",
+    "oracle": null,
+    "cues": 6
+  },
+  {
+    "name": "base.csv",
+    "format": "csv",
+    "author": "hand",
+    "oracle": {
+      "kind": "csv"
+    },
+    "cues": 6
+  },
+  {
+    "name": "base.json",
+    "format": "jsonsub",
+    "author": "hand",
+    "oracle": {
+      "kind": "json"
+    },
+    "cues": 6
+  },
+  {
+    "name": "base.json3",
+    "format": "ytjson",
+    "author": "hand",
+    "oracle": {
+      "kind": "json"
+    },
+    "cues": 6
+  },
+  {
+    "name": "base.ttxt",
+    "format": "ttxt",
+    "author": "hand",
+    "oracle": null,
+    "cues": 6
+  },
+  {
+    "name": "base.lrc",
+    "format": "lrc",
+    "author": "ffmpeg",
+    "oracle": {
+      "kind": "ffmpeg",
+      "id": "lrc"
+    },
+    "carries": {
+      "ends": false,
+      "lineBreaks": false
+    },
+    "cues": 6
+  },
+  {
+    "name": "fine.srt",
+    "format": "srt",
+    "set": "fine",
+    "author": "hand",
+    "oracle": {
+      "kind": "ffmpeg",
+      "id": "srt"
+    },
+    "cues": 3
+  },
+  {
+    "name": "fine.vtt",
+    "format": "vtt",
+    "set": "fine",
+    "author": "hand",
+    "oracle": {
+      "kind": "ffmpeg",
+      "id": "webvtt"
+    },
+    "cues": 3
+  },
+  {
+    "name": "fine.sbv",
+    "format": "sbv",
+    "set": "fine",
+    "author": "hand",
+    "oracle": null,
+    "cues": 3
+  },
+  {
+    "name": "fine.json",
+    "format": "jsonsub",
+    "set": "fine",
+    "author": "hand",
+    "oracle": {
+      "kind": "json"
+    },
+    "cues": 3
+  },
+  {
+    "name": "overlap.srt",
+    "format": "srt",
+    "set": "overlap",
+    "author": "hand",
+    "oracle": {
+      "kind": "ffmpeg",
+      "id": "srt"
+    },
+    "cues": 2
+  },
+  {
+    "name": "overlap.ass",
+    "format": "ass",
+    "set": "overlap",
+    "author": "ffmpeg",
+    "oracle": {
+      "kind": "pysubs2",
+      "id": "ass"
+    },
+    "cues": 2
+  },
+  {
+    "name": "overlap.vtt",
+    "format": "vtt",
+    "set": "overlap",
+    "author": "hand",
+    "oracle": {
+      "kind": "ffmpeg",
+      "id": "webvtt"
+    },
+    "cues": 2
+  },
+  {
+    "name": "overlap.sub",
+    "format": "sub",
+    "set": "overlap",
+    "author": "hand",
+    "oracle": {
+      "kind": "ffmpeg",
+      "id": "microdvd"
+    },
+    "cues": 2
+  },
+  {
+    "name": "overlap.json",
+    "format": "jsonsub",
+    "set": "overlap",
+    "author": "hand",
+    "oracle": {
+      "kind": "json"
+    },
+    "cues": 2
+  },
+  {
+    "name": "crlf.srt",
+    "format": "srt",
+    "variant": "crlf",
+    "author": "hand",
+    "oracle": {
+      "kind": "ffmpeg",
+      "id": "srt"
+    },
+    "cues": 6
+  },
+  {
+    "name": "bom.srt",
+    "format": "srt",
+    "variant": "bom",
+    "author": "hand",
+    "oracle": {
+      "kind": "ffmpeg",
+      "id": "srt"
+    },
+    "cues": 6
+  },
+  {
+    "name": "bom-crlf.vtt",
+    "format": "vtt",
+    "variant": "bom-crlf",
+    "author": "hand",
+    "oracle": {
+      "kind": "ffmpeg",
+      "id": "webvtt"
+    },
+    "cues": 6
+  },
+  {
+    "name": "crlf.ass",
+    "format": "ass",
+    "variant": "crlf",
+    "author": "ffmpeg",
+    "oracle": {
+      "kind": "pysubs2",
+      "id": "ass"
+    },
+    "cues": 6
+  }
+]

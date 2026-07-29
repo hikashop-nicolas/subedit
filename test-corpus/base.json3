@@ -1,0 +1,58 @@
+{
+  "events": [
+    {
+      "tStartMs": 1000,
+      "dDurationMs": 2000,
+      "segs": [
+        {
+          "utf8": "Hello, world."
+        }
+      ]
+    },
+    {
+      "tStartMs": 4000,
+      "dDurationMs": 2000,
+      "segs": [
+        {
+          "utf8": "Two lines here\nand a second line"
+        }
+      ]
+    },
+    {
+      "tStartMs": 7000,
+      "dDurationMs": 2000,
+      "segs": [
+        {
+          "utf8": "Accentué ça va 日本語 مرحبا"
+        }
+      ]
+    },
+    {
+      "tStartMs": 10000,
+      "dDurationMs": 2000,
+      "segs": [
+        {
+          "utf8": "He said \"quoted\" and 5 > 3 & 2 < 4"
+        }
+      ]
+    },
+    {
+      "tStartMs": 13000,
+      "dDurationMs": 3000,
+      "segs": [
+        {
+          "utf8": "A deliberately long single line of dialogue used to exercise the characters-per-second reading"
+        }
+      ]
+    },
+    {
+      "tStartMs": 3723000,
+      "dDurationMs": 2000,
+      "segs": [
+        {
+          "utf8": "Past the hour mark"
+        }
+      ]
+    }
+  ]
+}

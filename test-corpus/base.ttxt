@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<TextStream version="1.1">
+  <TextStreamHeader width="320" height="60" layer="0" translation_x="0" translation_y="0">
+    <TextSampleDescription horizontalJustification="center" verticalJustification="bottom" backColor="0 0 0 0" scroll="None">
+      <FontTable><FontTableEntry fontName="Serif" fontID="1"/></FontTable>
+    </TextSampleDescription>
+  </TextStreamHeader>
+  <TextSample sampleTime="00:00:01.000" xml:space="preserve">Hello, world.</TextSample>
+  <TextSample sampleTime="00:00:03.000" text="" />
+  <TextSample sampleTime="00:00:04.000" xml:space="preserve">Two lines here
+and a second line</TextSample>
+  <TextSample sampleTime="00:00:06.000" text="" />
+  <TextSample sampleTime="00:00:07.000" xml:space="preserve">Accentué ça va 日本語 مرحبا</TextSample>
+  <TextSample sampleTime="00:00:09.000" text="" />
+  <TextSample sampleTime="00:00:10.000" xml:space="preserve">He said "quoted" and 5 &gt; 3 &amp; 2 &lt; 4</TextSample>
+  <TextSample sampleTime="00:00:12.000" text="" />
+  <TextSample sampleTime="00:00:13.000" xml:space="preserve">A deliberately long single line of dialogue used to exercise the characters-per-second reading</TextSample>
+  <TextSample sampleTime="00:00:16.000" text="" />
+  <TextSample sampleTime="01:02:03.000" xml:space="preserve">Past the hour mark</TextSample>
+  <TextSample sampleTime="01:02:05.000" text="" />
+</TextStream>

@@ -1,0 +1,24 @@
+1
+00:00:01,000 --> 00:00:03,000
+Hello, world.
+
+2
+00:00:04,000 --> 00:00:06,000
+Two lines here
+and a second line
+
+3
+00:00:07,000 --> 00:00:09,000
+Accentué ça va 日本語 مرحبا
+
+4
+00:00:10,000 --> 00:00:12,000
+He said "quoted" and 5 > 3 & 2 < 4
+
+5
+00:00:13,000 --> 00:00:16,000
+A deliberately long single line of dialogue used to exercise the characters-per-second reading
+
+6
+01:02:03,000 --> 01:02:05,000
+Past the hour mark
