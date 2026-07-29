@@ -61,11 +61,12 @@ jobs:
       # pysubs2 is the second reader, in another language, sharing no code with this one.
       # Installed where scripts/oracles.mjs expects to find it.
       - run: python3 -m venv .cache/py && .cache/py/bin/pip install --quiet pysubs2
-      # The corpus is committed, so this does not build the fixtures the tests run against: it
-      # rebuilds them from scratch and re-validates every one against ffmpeg and pysubs2, which
-      # is what catches a fixture that has drifted from what the outside world reads it as.
+      # The corpus is committed, so this is not how the fixtures get built: it rebuilds them
+      # and re-validates every one against ffmpeg and pysubs2, which catches a fixture whose
+      # meaning has drifted from what the outside world reads it as. The rebuilt files are not
+      # compared byte for byte with the committed ones on purpose, because ffmpeg stamps its
+      # own version into the ASS and LRC it writes and every ffmpeg release would "fail".
       - run: npm run corpus
-      - run: git diff --exit-code --stat test-corpus
       # What subedit WRITES, read back by tools that share no code with it.
       - run: npm run check:writers
       - run: npm run check:xml
