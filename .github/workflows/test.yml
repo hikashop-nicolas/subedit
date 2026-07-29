@@ -67,7 +67,6 @@ jobs:
       # compared byte for byte with the committed ones on purpose, because ffmpeg stamps its
       # own version into the ASS and LRC it writes and every ffmpeg release would "fail".
       - run: npm run corpus
-      # What subedit WRITES, read back by tools that share no code with it.
       - run: npm run check:writers
       - run: npm run check:xml
       # And what it muxes: ffprobe on the containers, and the cues pulled back out of the
@@ -95,4 +94,3 @@ jobs:
           echo "npm ci failed after 3 attempts"
           exit 1
       - run: npm run test:e2e
-
