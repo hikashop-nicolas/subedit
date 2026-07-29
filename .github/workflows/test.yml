@@ -71,3 +71,25 @@ jobs:
       - run: npm run check:writers
       - run: npm run check:xml
 
+  # The editor itself, in a real browser. Everything above runs in node against strings, and
+  # editor.ts is both the largest file here and the one nothing else can reach: it only ever
+  # touches the DOM. Its own job because it builds the demo and drives Chrome.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install dependencies
+        run: |
+          for attempt in 1 2 3; do
+            npm ci && exit 0
+            echo "npm ci failed (attempt $attempt), retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          echo "npm ci failed after 3 attempts"
+          exit 1
+      - run: npm run test:e2e
+

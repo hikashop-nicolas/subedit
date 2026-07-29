@@ -24,11 +24,12 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/fix-worker-urls.mjs",
     "build:demo": "npm run assets && vite build",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "node node_modules/tsgo/bin/tsc -p tsconfig.json --noEmit",
     "assets": "node scripts/copy-octopus-assets.mjs && node scripts/copy-libav-assets.mjs",
     "dev": "npm run assets && vite",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:e2e": "npm run build:demo && start-server-and-test 'vite preview --port 5174 --strictPort' http://localhost:5174 'cypress run --browser chrome'",
     "corpus": "node scripts/gen-corpus.mjs",
     "check:writers": "vitest run src/corpus/write-corpus.test.ts && node scripts/check-writers.mjs",
     "check:xml": "vitest run src/corpus/write-corpus.test.ts && node scripts/check-xml.mjs",
@@ -43,7 +44,10 @@
     "mediaplay": "github:hikashop-nicolas/mediaplay#1b0c7fd"
   },
   "devDependencies": {
-    "typescript": "^7.0.2",
+    "cypress": "^15.19.0",
+    "start-server-and-test": "^2.1.5",
+    "tsgo": "npm:typescript@^7.0.2",
+    "typescript": "^6.0.3",
     "vite": "^8.0.16",
     "vitest": "^4.0.0"
   }

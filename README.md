@@ -140,10 +140,37 @@ use.
 ```bash
 npm install
 npm run dev        # demo at http://localhost:5173/
-npm test           # round-trip + unit tests (vitest)
+npm test           # unit + corpus tests (vitest)
 npm run typecheck
 npm run build      # tsc -> dist/
+npm run test:e2e   # the editor in a real browser (Cypress)
 ```
+
+### Checks
+
+`npm test` covers the parsers, serializers and the corpus. The rest need tools the tests
+themselves are not allowed to be: **ffmpeg** and **pysubs2** (`npm run check:setup` creates
+the Python venv the scripts look for), plus **xmllint**.
+
+```bash
+npm run corpus         # rebuild test-corpus/, revalidating every fixture against ffmpeg/pysubs2
+npm run check:writers  # convert into all 18 formats, read each back with an outside reader
+npm run check:xml      # the XML subedit writes must actually parse as XML
+```
+
+**Why the corpus is not written by subedit.** A unit test that parses a string written three
+lines above it can only show subedit agreeing with itself; a file no other player understands
+passes just as easily. So ffmpeg authors the fixtures it has a muxer for, everything else is
+written from the format's definition and then has to be recovered correctly by an independent
+reader before it is accepted as ground truth, and the five formats with no such reader
+(SBV, Spruce, QuickTime Text, DVD Studio Pro, TTXT) are marked in `test-corpus/manifest.json`
+as golden files rather than left looking verified. Which reader is authoritative per format is
+recorded, with the measurements behind it, in `scripts/oracles.mjs`.
+
+**Two TypeScripts, on purpose.** The typecheck runs TypeScript 7, the native compiler, aliased
+as `tsgo` and called by path; `typescript` itself stays on 6. TypeScript 7's package is a
+launcher for a binary and exposes no JS compiler API, which Cypress needs to compile its
+specs, so with 7 under that name every e2e spec fails to bundle.
 
 ## License
 

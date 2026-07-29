@@ -6,3 +6,5 @@ dist/
 .vite/
 demo/public/
 .cache/
+cypress/screenshots/
+cypress/videos/
