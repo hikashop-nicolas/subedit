@@ -64,11 +64,10 @@ export function injectStyles(): void {
 /* Where the other people in a shared session are. An inset border rather than a background,
    so it reads on top of the row's own selected/playing colours instead of fighting them. */
 .se-row.se-peer{box-shadow:inset 0 0 0 2px var(--se-peer-colour);}
-.se-row.se-peer::after{
-  content:attr(data-peers);position:absolute;right:6px;top:2px;
-  font-size:10px;line-height:14px;padding:0 5px;border-radius:7px;
-  background:var(--se-peer-colour);color:#fff;pointer-events:none;max-width:40%;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+.se-peerflags{position:absolute;right:6px;top:2px;display:flex;gap:3px;max-width:45%;pointer-events:none;}
+.se-peerflag{
+  font-style:normal;font-size:10px;line-height:14px;padding:0 5px;border-radius:7px;
+  color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 .se-row.playing{box-shadow:inset 3px 0 0 var(--se-accent);}
 .se-row.primary .se-num{color:var(--se-accent);font-weight:600;}

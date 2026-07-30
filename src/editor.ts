@@ -753,15 +753,25 @@ class SubtitleEditor implements SubtitleEditorHandle {
   /** Paint the peer markers onto a row. Called for every row as it is (re)rendered. */
   private paintPeers(row: HTMLElement, cueId: string): void {
     const here = this.peerCues.filter((p) => p.cueId === cueId);
+    row.querySelector(".se-peerflags")?.remove();
     row.classList.toggle("se-peer", here.length > 0);
     if (!here.length) {
       row.style.removeProperty("--se-peer-colour");
-      row.removeAttribute("data-peers");
       return;
     }
-    // One border can only be one colour; the names say who else is here.
+
+    // A row has one border, so it can only carry one colour; with several people on the
+    // same cue the border says "someone is here" and each name badge says who, in that
+    // person's own colour. Otherwise two peers on one cue would be indistinguishable.
     row.style.setProperty("--se-peer-colour", here[0].colour);
-    row.setAttribute("data-peers", here.map((p) => p.name).join(", "));
+    const flags = el("span", "se-peerflags");
+    for (const peer of here) {
+      const flag = el("i", "se-peerflag");
+      flag.textContent = peer.name;
+      flag.style.background = peer.colour;
+      flags.appendChild(flag);
+    }
+    row.appendChild(flags);
   }
 
   setPeerCues(peers: PeerCue[]): void {

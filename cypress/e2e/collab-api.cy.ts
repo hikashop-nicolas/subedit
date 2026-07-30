@@ -213,7 +213,7 @@ describe("peer presence", () => {
     });
 
     cy.get(".se-row").eq(1).should("have.class", "se-peer");
-    cy.get(".se-row").eq(1).should("have.attr", "data-peers", "Ada");
+    cy.get(".se-row").eq(1).find(".se-peerflag").should("have.length", 1).and("have.text", "Ada");
     cy.get(".se-row").eq(1).should("have.css", "box-shadow").and("contain", "rgb(255, 0, 0)");
     cy.get(".se-row").eq(0).should("not.have.class", "se-peer");
   });
@@ -231,7 +231,10 @@ describe("peer presence", () => {
     cy.get(".se-row").eq(2).should("not.have.class", "se-peer");
   });
 
-  it("names everyone sitting on the same cue", () => {
+  // Several people on one cue: the row has one border, so it can only carry one colour.
+  // Each name gets its own badge in that person's colour, or two peers on the same cue
+  // would be indistinguishable.
+  it("gives everyone on the same cue their own badge, in their own colour", () => {
     handle().then((h) => {
       const id = h.cueSnapshot()[1].id;
       h.setPeerCues([
@@ -239,7 +242,32 @@ describe("peer presence", () => {
         { id: "p2", colour: "rgb(0, 0, 255)", name: "Grace", cueId: id },
       ]);
     });
-    cy.get(".se-row").eq(1).should("have.attr", "data-peers", "Ada, Grace");
+
+    cy.get(".se-row").eq(1).find(".se-peerflag").should("have.length", 2);
+    cy.get(".se-row").eq(1).find(".se-peerflag").eq(0).should("have.text", "Ada");
+    cy.get(".se-row").eq(1).find(".se-peerflag").eq(1).should("have.text", "Grace");
+    cy.get(".se-row").eq(1).find(".se-peerflag").eq(0)
+      .should("have.css", "background-color", "rgb(255, 0, 0)");
+    cy.get(".se-row").eq(1).find(".se-peerflag").eq(1)
+      .should("have.css", "background-color", "rgb(0, 0, 255)");
+    // Still exactly one border on the row.
+    cy.get(".se-row").eq(1).should("have.class", "se-peer");
+  });
+
+  it("removes a badge when only one of two peers moves away", () => {
+    handle().then((h) => {
+      const cues = h.cueSnapshot();
+      h.setPeerCues([
+        { id: "p1", colour: "rgb(255, 0, 0)", name: "Ada", cueId: cues[1].id },
+        { id: "p2", colour: "rgb(0, 0, 255)", name: "Grace", cueId: cues[1].id },
+      ]);
+      h.setPeerCues([
+        { id: "p1", colour: "rgb(255, 0, 0)", name: "Ada", cueId: cues[1].id },
+        { id: "p2", colour: "rgb(0, 0, 255)", name: "Grace", cueId: cues[2].id },
+      ]);
+    });
+    cy.get(".se-row").eq(1).find(".se-peerflag").should("have.length", 1).and("have.text", "Ada");
+    cy.get(".se-row").eq(2).find(".se-peerflag").should("have.length", 1).and("have.text", "Grace");
   });
 
   // The markers have to survive the list being rebuilt, which happens on any remote edit.
