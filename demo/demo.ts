@@ -9,10 +9,15 @@ let handle: SubtitleEditorHandle | null = null;
 function open(text: string, filename: string): void {
   handle?.destroy();
   editorEl.textContent = "";
+  const win = window as unknown as Record<string, unknown>;
+  win.subChangeCount = 0; // lets a host (and the e2e suite) see that onChange really fired
   handle = createSubtitleEditor(editorEl, { text, filename }, {
-    onChange: () => console.log("edited"),
+    onChange: () => {
+      win.subChangeCount = (win.subChangeCount as number) + 1;
+      console.log("edited");
+    },
   });
-  (window as unknown as Record<string, unknown>).subHandle = handle; // handy in the console
+  win.subHandle = handle; // handy in the console
 }
 
 // The styled Open button proxies to the hidden native file input.

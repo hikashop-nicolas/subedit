@@ -74,9 +74,39 @@ export interface SubtitleEditorOptions {
   showSave?: boolean;
 }
 
+/** Undo and redo, when a host owns them (a collaboration session). */
+export interface UndoHandler {
+  undo(): void;
+  redo(): void;
+  canUndo(): boolean;
+  canRedo(): boolean;
+}
+
 export interface SubtitleEditorHandle {
   getText(): string;
   getDoc(): SubtitleDoc;
+  /**
+   * Replace the cue list from somewhere other than this editor: a collaboration peer.
+   *
+   * Re-renders and refreshes the preview, and deliberately does NOT fire onChange or push
+   * an undo step. Firing onChange would echo the remote edit straight back to whoever sent
+   * it; pushing history would put someone else's typing into your own undo stack.
+   *
+   * The selection is kept when the selected cue still exists, so a remote edit elsewhere
+   * in the file does not move the cursor out from under you.
+   */
+  applyRemoteCues(cues: Cue[]): void;
+  /** Cues as they stand, cloned, so a caller can diff against a later state safely. */
+  cueSnapshot(): Cue[];
+  /**
+   * Hand undo and redo to the host, or pass null to take them back.
+   *
+   * A collaboration session must do this. This editor's own undo restores a whole-model
+   * snapshot, so once a peer's edit has landed, undoing would revert THEIR work along with
+   * yours and the two documents would silently diverge. A host that owns the shared
+   * document can undo only what this peer did, which is the behaviour people expect.
+   */
+  setUndoHandler(handler: UndoHandler | null): void;
   // Load a video/audio file into the preview pane programmatically (same as the
   // "Load video" button). Useful for a host that already has the media in hand.
   loadPreviewMedia(file: File): void;
@@ -204,6 +234,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private history = new History<HistorySnap>((s) => s, HIST_MAX);
   private histTimer = 0;
   private restoring = false;
+  private undoHandler: UndoHandler | null = null;
   private undoBtn: HTMLButtonElement | null = null;
   private redoBtn: HTMLButtonElement | null = null;
   private followBtn: HTMLButtonElement | null = null;
@@ -3039,6 +3070,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   }
 
   private undo(): void {
+    if (this.undoHandler) return void this.undoHandler.undo();
     window.clearTimeout(this.histTimer);
     this.histTimer = 0;
     const prev = this.history.undo(this.snapshot());
@@ -3048,6 +3080,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   }
 
   private redo(): void {
+    if (this.undoHandler) return void this.undoHandler.redo();
     window.clearTimeout(this.histTimer);
     this.histTimer = 0;
     const next = this.history.redo(this.snapshot());
@@ -3057,10 +3090,10 @@ class SubtitleEditor implements SubtitleEditorHandle {
   }
 
   private canUndo(): boolean {
-    return this.history.canUndo();
+    return this.undoHandler ? this.undoHandler.canUndo() : this.history.canUndo();
   }
   private canRedo(): boolean {
-    return this.history.canRedo();
+    return this.undoHandler ? this.undoHandler.canRedo() : this.history.canRedo();
   }
 
   private restoreSnap(snap: HistorySnap): void {
@@ -3087,6 +3120,43 @@ class SubtitleEditor implements SubtitleEditorHandle {
   }
   getDoc(): SubtitleDoc {
     return this.doc;
+  }
+  cueSnapshot(): Cue[] {
+    return this.doc.cues.map((c) => structuredClone(c));
+  }
+  applyRemoteCues(cues: Cue[]): void {
+    const keepId = this.selectedId;
+    this.doc.cues = cues.map((c) => structuredClone(c));
+
+    // Rebuild rather than patch: a remote edit may have inserted, removed or reordered
+    // cues, and the row cache is keyed by index.
+    this.rows.clear();
+    this.innerEl.textContent = "";
+    this.renderList();
+
+    const stillThere = keepId && this.doc.cues.some((c) => c.id === keepId);
+    if (stillThere) this.select(keepId);
+    else if (this.doc.cues.length) this.select(this.doc.cues[0].id);
+    else this.renderDetail();
+
+    this.countEl.textContent = t("cueCount", { n: this.doc.cues.length });
+    this.pushSubtitles(); // the preview must follow, or it shows a stale burn-in
+
+    // Without a host owning undo, the local stack now holds snapshots that predate this
+    // remote edit, so one undo would quietly revert someone else's work. Dropping the
+    // stack costs this peer its undo and is the safe direction to be wrong in; a session
+    // installs an undo handler and keeps proper per-peer undo instead.
+    if (!this.undoHandler) {
+      window.clearTimeout(this.histTimer);
+      this.histTimer = 0;
+      this.history.reset(this.snapshot());
+      this.updateHistoryButtons();
+    }
+  }
+
+  setUndoHandler(handler: UndoHandler | null): void {
+    this.undoHandler = handler;
+    this.updateHistoryButtons();
   }
   loadPreviewMedia(file: File): void {
     void this.loadVideo(file);

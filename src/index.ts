@@ -13,6 +13,7 @@ export {
   type SubtitleInput,
   type SubtitleEditorOptions,
   type SubtitleEditorHandle,
+  type UndoHandler,
 } from "./editor";
 export { setLocale, t } from "./i18n";
 export {
