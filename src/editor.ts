@@ -111,6 +111,9 @@ export interface SubtitleEditorHandle {
   applyRemoteCues(cues: Cue[]): void;
   /** Cues as they stand, cloned, so a caller can diff against a later state safely. */
   cueSnapshot(): Cue[];
+  /** The cue this person is on. A session publishes it on binding, so a peer is visible
+   *  straight away instead of only once they next move. */
+  selectedCueId(): string | null;
   /**
    * Hand undo and redo to the host, or pass null to take them back.
    *
@@ -3164,6 +3167,9 @@ class SubtitleEditor implements SubtitleEditorHandle {
   }
   cueSnapshot(): Cue[] {
     return this.doc.cues.map((c) => structuredClone(c));
+  }
+  selectedCueId(): string | null {
+    return this.selectedId;
   }
   applyRemoteCues(cues: Cue[]): void {
     const keepId = this.selectedId;

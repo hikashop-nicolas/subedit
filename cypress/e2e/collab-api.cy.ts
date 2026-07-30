@@ -25,6 +25,7 @@ type Handle = {
   applyRemoteCues(cues: Cue[]): void;
   setUndoHandler(h: { undo(): void; redo(): void; canUndo(): boolean; canRedo(): boolean } | null): void;
   setPeerCues(peers: { id: string; colour: string; name: string; cueId: string | null }[]): void;
+  selectedCueId(): string | null;
 };
 
 const handle = (): Cypress.Chainable<Handle> =>
@@ -252,5 +253,27 @@ describe("peer presence", () => {
     });
     cy.get(".se-row").eq(0).find(".se-text").should("contain.text", "Changed remotely.");
     cy.get(".se-row").eq(1).should("have.class", "se-peer");
+  });
+});
+
+describe("the current position", () => {
+  // Publishing on bind is what stops a peer being invisible until they happen to move,
+  // which is how it behaved the first time two tabs were watched.
+  it("can be read without waiting for a move", () => {
+    cy.visit("/");
+    cy.get("#file").selectFile(
+      { contents: Cypress.Buffer.from(SAMPLE), fileName: "sample.srt" },
+      { force: true },
+    );
+    cy.get(".se-row").first().find(".se-text").should("contain.text", "First cue.");
+
+    handle().then((h) => {
+      expect(h.selectedCueId(), "a freshly opened file has a selection").to.equal(
+        h.cueSnapshot()[0].id,
+      );
+    });
+
+    cy.get(".se-row").eq(2).click();
+    handle().then((h) => expect(h.selectedCueId()).to.equal(h.cueSnapshot()[2].id));
   });
 });
