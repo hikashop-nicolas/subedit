@@ -11,10 +11,15 @@ function open(text: string, filename: string): void {
   editorEl.textContent = "";
   const win = window as unknown as Record<string, unknown>;
   win.subChangeCount = 0; // lets a host (and the e2e suite) see that onChange really fired
+  win.subSelections = [];
   handle = createSubtitleEditor(editorEl, { text, filename }, {
     onChange: () => {
       win.subChangeCount = (win.subChangeCount as number) + 1;
       console.log("edited");
+    },
+    onSelectionChanged: (cueId) => {
+      win.subSelection = cueId;
+      (win.subSelections as unknown[]).push(cueId);
     },
   });
   win.subHandle = handle; // handy in the console

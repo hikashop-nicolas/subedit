@@ -72,6 +72,8 @@ export interface SubtitleEditorOptions {
   locale?: string;
   // Show the toolbar Save button (downloads the file). Hosts that own saving pass false.
   showSave?: boolean;
+  /** The cue this person moved to. A shared session publishes it so the others can see it. */
+  onSelectionChanged?: (cueId: string | null) => void;
 }
 
 /** Undo and redo, when a host owns them (a collaboration session). */
@@ -80,6 +82,17 @@ export interface UndoHandler {
   redo(): void;
   canUndo(): boolean;
   canRedo(): boolean;
+}
+
+/** Another person in a shared session, and the cue they are on. */
+export interface PeerCue {
+  /** Stable per peer, used only to tell one marker from another. */
+  id: string;
+  /** Any CSS colour. Drawn as the cue row's border so several peers stay distinguishable. */
+  colour: string;
+  name: string;
+  /** The cue they have selected, or null when they are not on one. */
+  cueId: string | null;
 }
 
 export interface SubtitleEditorHandle {
@@ -107,6 +120,8 @@ export interface SubtitleEditorHandle {
    * document can undo only what this peer did, which is the behaviour people expect.
    */
   setUndoHandler(handler: UndoHandler | null): void;
+  /** Show where the other people in a session are. Replaces the whole set each call. */
+  setPeerCues(peers: PeerCue[]): void;
   // Load a video/audio file into the preview pane programmatically (same as the
   // "Load video" button). Useful for a host that already has the media in hand.
   loadPreviewMedia(file: File): void;
@@ -235,6 +250,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private histTimer = 0;
   private restoring = false;
   private undoHandler: UndoHandler | null = null;
+  /** Where the other people in a session are, by cue id. */
+  private peerCues: PeerCue[] = [];
   private undoBtn: HTMLButtonElement | null = null;
   private redoBtn: HTMLButtonElement | null = null;
   private followBtn: HTMLButtonElement | null = null;
@@ -710,6 +727,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     row.classList.toggle("primary", cue.id === this.selectedId && this.selectedIds.size > 1);
     row.classList.toggle("playing", cue.id === this.playingId);
     row.classList.toggle("commented", cue.assKind === "Comment");
+    this.paintPeers(row, cue.id);
     row.setAttribute("aria-selected", String(this.selectedIds.has(cue.id)));
     // A spoken description of the cue for screen readers: index, timing, and text.
     const spoken = visibleText(cue.text) || t("noCues");
@@ -729,9 +747,32 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.setSelection([id], id);
   }
 
+  /** Paint the peer markers onto a row. Called for every row as it is (re)rendered. */
+  private paintPeers(row: HTMLElement, cueId: string): void {
+    const here = this.peerCues.filter((p) => p.cueId === cueId);
+    row.classList.toggle("se-peer", here.length > 0);
+    if (!here.length) {
+      row.style.removeProperty("--se-peer-colour");
+      row.removeAttribute("data-peers");
+      return;
+    }
+    // One border can only be one colour; the names say who else is here.
+    row.style.setProperty("--se-peer-colour", here[0].colour);
+    row.setAttribute("data-peers", here.map((p) => p.name).join(", "));
+  }
+
+  setPeerCues(peers: PeerCue[]): void {
+    this.peerCues = peers;
+    for (const [id, row] of this.rows) this.paintPeers(row, id);
+  }
+
   // Set the selection to `ids` with `primary` as the detail-edited cue. Refreshes every row
   // whose selected state changed, and re-renders the detail for the primary.
   private setSelection(ids: string[], primary: string): void {
+    if (primary !== this.selectedId) {
+      // Deferred: setSelection runs mid-render, and a host may repaint in response.
+      queueMicrotask(() => this.opts.onSelectionChanged?.(this.selectedId));
+    }
     if (this.posOverlay) this.exitPosition();
     if (this.clipOverlay) this.exitClip();
     if (this.drawOverlay) this.exitDraw();

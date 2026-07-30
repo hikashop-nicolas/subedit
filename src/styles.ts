@@ -61,6 +61,15 @@ export function injectStyles(): void {
 .se-row.sel{background:var(--se-sel);color:var(--se-sel-fg);}
 /* Keyboard focus: ring the selected cue when the list itself is focused. */
 .se-inner:focus-visible .se-row.sel{box-shadow:inset 0 0 0 2px var(--se-accent);}
+/* Where the other people in a shared session are. An inset border rather than a background,
+   so it reads on top of the row's own selected/playing colours instead of fighting them. */
+.se-row.se-peer{box-shadow:inset 0 0 0 2px var(--se-peer-colour);}
+.se-row.se-peer::after{
+  content:attr(data-peers);position:absolute;right:6px;top:2px;
+  font-size:10px;line-height:14px;padding:0 5px;border-radius:7px;
+  background:var(--se-peer-colour);color:#fff;pointer-events:none;max-width:40%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
 .se-row.playing{box-shadow:inset 3px 0 0 var(--se-accent);}
 .se-row.primary .se-num{color:var(--se-accent);font-weight:600;}
 .se-row.commented .se-text{opacity:.5;font-style:italic;}

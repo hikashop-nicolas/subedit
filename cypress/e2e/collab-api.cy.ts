@@ -24,6 +24,7 @@ type Handle = {
   cueSnapshot(): Cue[];
   applyRemoteCues(cues: Cue[]): void;
   setUndoHandler(h: { undo(): void; redo(): void; canUndo(): boolean; canRedo(): boolean } | null): void;
+  setPeerCues(peers: { id: string; colour: string; name: string; cueId: string | null }[]): void;
 };
 
 const handle = (): Cypress.Chainable<Handle> =>
@@ -178,5 +179,78 @@ describe("the collaboration API", () => {
 
     // Still on the third cue: a remote edit somewhere else must not move the cursor.
     cy.get(".se-detail textarea").should("have.value", "Third cue.");
+  });
+});
+
+// Seeing where the other people are. Presence is the only thing that makes a shared session
+// feel like one, and it is entirely visual, so it is only testable here.
+describe("peer presence", () => {
+  beforeEach(() => {
+    cy.visit("/");
+    cy.get("#file").selectFile(
+      { contents: Cypress.Buffer.from(SAMPLE), fileName: "sample.srt" },
+      { force: true },
+    );
+    cy.get(".se-row").first().find(".se-text").should("contain.text", "First cue.");
+  });
+
+  it("reports which cue this person moved to", () => {
+    cy.window().then((w) => ((w as unknown as { subSelections: unknown[] }).subSelections = []));
+    cy.get(".se-row").eq(2).click();
+    cy.window().then((w) => {
+      const seen = (w as unknown as { subSelections: (string | null)[] }).subSelections;
+      const h = (w as unknown as { subHandle: Handle }).subHandle;
+      expect(seen.length, "a move is announced").to.be.greaterThan(0);
+      expect(seen.at(-1)).to.equal(h.cueSnapshot()[2].id);
+    });
+  });
+
+  it("marks the cue another person is on, in their colour", () => {
+    handle().then((h) => {
+      const cues = h.cueSnapshot();
+      h.setPeerCues([{ id: "p1", colour: "rgb(255, 0, 0)", name: "Ada", cueId: cues[1].id }]);
+    });
+
+    cy.get(".se-row").eq(1).should("have.class", "se-peer");
+    cy.get(".se-row").eq(1).should("have.attr", "data-peers", "Ada");
+    cy.get(".se-row").eq(1).should("have.css", "box-shadow").and("contain", "rgb(255, 0, 0)");
+    cy.get(".se-row").eq(0).should("not.have.class", "se-peer");
+  });
+
+  it("moves the marker when they move, and clears it when they leave", () => {
+    handle().then((h) => {
+      const cues = h.cueSnapshot();
+      h.setPeerCues([{ id: "p1", colour: "rgb(0, 128, 0)", name: "Ada", cueId: cues[0].id }]);
+      h.setPeerCues([{ id: "p1", colour: "rgb(0, 128, 0)", name: "Ada", cueId: cues[2].id }]);
+    });
+    cy.get(".se-row").eq(0).should("not.have.class", "se-peer");
+    cy.get(".se-row").eq(2).should("have.class", "se-peer");
+
+    handle().then((h) => h.setPeerCues([]));
+    cy.get(".se-row").eq(2).should("not.have.class", "se-peer");
+  });
+
+  it("names everyone sitting on the same cue", () => {
+    handle().then((h) => {
+      const id = h.cueSnapshot()[1].id;
+      h.setPeerCues([
+        { id: "p1", colour: "rgb(255, 0, 0)", name: "Ada", cueId: id },
+        { id: "p2", colour: "rgb(0, 0, 255)", name: "Grace", cueId: id },
+      ]);
+    });
+    cy.get(".se-row").eq(1).should("have.attr", "data-peers", "Ada, Grace");
+  });
+
+  // The markers have to survive the list being rebuilt, which happens on any remote edit.
+  it("keeps the markers when a remote edit rebuilds the list", () => {
+    handle().then((h) => {
+      const cues = h.cueSnapshot();
+      h.setPeerCues([{ id: "p1", colour: "rgb(255, 0, 0)", name: "Ada", cueId: cues[1].id }]);
+      const edited = h.cueSnapshot();
+      edited[0].text = "Changed remotely.";
+      h.applyRemoteCues(edited);
+    });
+    cy.get(".se-row").eq(0).find(".se-text").should("contain.text", "Changed remotely.");
+    cy.get(".se-row").eq(1).should("have.class", "se-peer");
   });
 });
