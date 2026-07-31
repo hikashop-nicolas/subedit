@@ -143,27 +143,38 @@ describe("two subtitle editors wired together", () => {
     });
   });
 
-  it("shows where the other person is, in their colour", () => {
-    pair().then((p) => {
-      const third = p.a.cueSnapshot()[2].id;
-      p.b.setPeerCues([{ id: "a", colour: p.colours.a, name: "Ada", cueId: third }]);
-    });
-
-    rowsOf("b").eq(2).should("have.class", "se-peer");
-    rowsOf("b").eq(2).find(".se-peerflag").should("have.text", "Ada");
-    // The badge carries the colour per peer, which is what tells two people apart when
-    // they are on the same cue. The row's own border colour is asserted in collab-api.
-    rowsOf("b").eq(2).find(".se-peerflag").should("have.css", "background-color", "rgb(255, 0, 0)");
-    rowsOf("b").eq(0).should("not.have.class", "se-peer");
-  });
-
   // Clicking a cue really does publish it: the seam that made a peer invisible until they
   // happened to move was on exactly this path.
-  it("publishes a selection as soon as one side clicks a cue", () => {
+  //
+  // The marker is driven by a real click rather than handed to B directly. Injecting one
+  // looks simpler and is wrong here: both editors are wired to publish their own selection,
+  // so an injected marker is overwritten by the next notification either side emits, and
+  // the test is then racing its own harness. A click is the last thing to move the
+  // selection, so what it publishes stays put.
+  it("publishes a selection as soon as one side clicks a cue, in that peer's colour", () => {
+    pair().then((p) => {
+      rowsOf("a").eq(2).click();
+
+      rowsOf("b").eq(2).should("have.class", "se-peer");
+      rowsOf("b").eq(2).find(".se-peerflag").should("have.text", "Ada");
+      // Both halves of "who is here": the row's border says someone is, the badge says who.
+      // With several people on one cue the border can only carry one colour, so the badge is
+      // what tells them apart; assert each against the colour its owner was given.
+      rowsOf("b").eq(2).should("have.css", "box-shadow", `${p.colours.a} 0px 0px 0px 2px inset`);
+      rowsOf("b").eq(2).find(".se-peerflag").should("have.css", "background-color", p.colours.a);
+      rowsOf("b").eq(0).should("not.have.class", "se-peer");
+    });
+  });
+
+  // Moving on must take the old marker with it, or a peer appears to be in two places.
+  it("moves the marker when that peer moves, leaving nothing behind", () => {
     pair();
     rowsOf("a").eq(2).click();
     rowsOf("b").eq(2).should("have.class", "se-peer");
-    rowsOf("b").eq(2).find(".se-peerflag").should("have.text", "Ada");
+
+    rowsOf("a").eq(0).click();
+    rowsOf("b").eq(0).should("have.class", "se-peer");
+    rowsOf("b").eq(2).should("not.have.class", "se-peer");
   });
 
   it("keeps each side's own selection when the other edits elsewhere", () => {
