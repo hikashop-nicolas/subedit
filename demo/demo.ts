@@ -23,6 +23,9 @@ function open(text: string, filename: string): void {
     },
   });
   win.subHandle = handle; // handy in the console
+  // Lets a test build a second editor on the page and wire the two together, which is how
+  // a collaboration host uses this library. The pair is where the bugs are.
+  win.createSubtitleEditor = createSubtitleEditor;
 }
 
 // The styled Open button proxies to the hidden native file input.
