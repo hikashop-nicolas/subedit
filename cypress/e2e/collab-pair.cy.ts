@@ -13,7 +13,11 @@ type Cue = { id: string; startMs: number; endMs: number; text: string };
 type PeerCue = { id: string; colour: string; name: string; cueId: string | null };
 type UndoHandler = { undo(): void; redo(): void; canUndo(): boolean; canRedo(): boolean };
 
+type DocField = { key: string; value: string };
 type Handle = {
+  docFields(): DocField[];
+  setDocFieldsReporter(h: ((f: DocField[]) => void) | null): void;
+  applyRemoteDocFields(f: DocField[]): void;
   getText(): string;
   cueSnapshot(): Cue[];
   applyRemoteCues(cues: Cue[]): void;
@@ -235,6 +239,65 @@ describe("two subtitle editors wired together", () => {
       cy.wrap(null).then(() => {
         expect(calls).to.deep.equal(["undo", "redo"]);
         expect(p.b.getText()).to.contain("First cue."); // its own history untouched
+      });
+    });
+  });
+});
+
+// Everything a subtitle document is besides its cues: the ASS style table, the verbatim
+// script-info and tail, the format field orders, the line endings, and the tracks.
+describe("two subtitle editors, the document beside its cues", () => {
+  beforeEach(() => cy.visit("/"));
+
+  it("reports the document fields", () => {
+    pair().then((p) => {
+      const keys = p.a.docFields().map((f) => f.key);
+      expect(keys, "the format travels").to.include("format");
+      expect(keys).to.include("eol");
+    });
+  });
+
+  it("carries a field to the other editor", () => {
+    pair().then((p) => {
+      p.b.applyRemoteDocFields([{ key: "header", value: "WEBVTT - from Ada\n" }]);
+      const header = p.b.docFields().find((f) => f.key === "header");
+      expect(header?.value).to.contain("from Ada");
+    });
+  });
+
+  // Keyed per entry, so two people changing different things both keep their change.
+  it("keeps two different fields changed at once", () => {
+    pair().then((p) => {
+      p.b.applyRemoteDocFields([
+        { key: "header", value: "WEBVTT - Ada\n" },
+        { key: "trailingNotes", value: "NOTE from Bo\n" },
+      ]);
+      const get = (k: string) => p.b.docFields().find((f) => f.key === k)?.value;
+      expect(String(get("header"))).to.contain("Ada");
+      expect(String(get("trailingNotes"))).to.contain("Bo");
+    });
+  });
+
+  // A style table is a list of independent definitions; two people editing different
+  // styles must both survive, which is why each is its own entry.
+  it("carries one style without touching another", () => {
+    pair().then((p) => {
+      p.b.applyRemoteDocFields([
+        { key: "style:Default", value: JSON.stringify({ name: "Default", Fontsize: "40" }) },
+        { key: "style:Title", value: JSON.stringify({ name: "Title", Fontsize: "72" }) },
+      ]);
+      const styles = p.b.docFields().filter((f) => f.key.startsWith("style:"));
+      expect(styles.map((s) => s.key).sort()).to.deep.equal(["style:Default", "style:Title"]);
+    });
+  });
+
+  it("does not report a peer's change back to them", () => {
+    pair().then((p) => {
+      const seen: unknown[] = [];
+      p.b.setDocFieldsReporter((f) => seen.push(f));
+      p.b.applyRemoteDocFields([{ key: "header", value: "WEBVTT - quiet\n" }]);
+      cy.wrap(null).then(() => {
+        expect(seen, "applying is not a change to announce").to.deep.equal([]);
       });
     });
   });

@@ -99,6 +99,17 @@ export interface SubtitleEditorHandle {
   getText(): string;
   getDoc(): SubtitleDoc;
   /**
+   * Everything a subtitle document is besides its cues: the ASS style table, the verbatim
+   * script-info and tail, the format field orders, the line endings, and the tracks.
+   *
+   * One channel, keyed per entry, because they are unrelated to one another: someone
+   * editing a style and someone renaming a track should not overwrite each other.
+   */
+  docFields(): { key: string; value: string }[];
+  setDocFieldsReporter(handler: ((fields: { key: string; value: string }[]) => void) | null): void;
+  /** Take a peer's styles, tracks and document fields. Reports nothing back. */
+  applyRemoteDocFields(fields: { key: string; value: string }[]): void;
+  /**
    * Replace the cue list from somewhere other than this editor: a collaboration peer.
    *
    * Re-renders and refreshes the preview, and deliberately does NOT fire onChange or push
@@ -3093,6 +3104,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   }
 
   private markDirty(): void {
+    this.reportDocFields();
     this.countEl.textContent = t("cueCount", { n: this.doc.cues.length });
     this.pushSubtitles();
     this.opts.onChange?.();
@@ -3181,6 +3193,120 @@ class SubtitleEditor implements SubtitleEditorHandle {
   selectedCueId(): string | null {
     return this.selectedId;
   }
+  /** Told what changed besides the cues, while a session wants to know. */
+  private docFieldsReporter: ((fields: { key: string; value: string }[]) => void) | null = null;
+  private lastDocFieldsSig: string | null = null;
+  private applyingRemoteDocFields = false;
+
+  docFields(): { key: string; value: string }[] {
+    const doc = this.doc;
+    const out: { key: string; value: string }[] = [
+      { key: "format", value: doc.format },
+      { key: "eol", value: doc.eol },
+      { key: "bom", value: String(doc.bom) },
+      { key: "finalNewline", value: String(doc.finalNewline) },
+      { key: "header", value: doc.header ?? "" },
+      { key: "trailingNotes", value: doc.trailingNotes ?? "" },
+      { key: "assScriptInfo", value: doc.assScriptInfo ?? "" },
+      { key: "assStylesTail", value: doc.assStylesTail ?? "" },
+      { key: "assStyleFormat", value: JSON.stringify(doc.assStyleFormat ?? []) },
+      { key: "assFormat", value: JSON.stringify(doc.assFormat ?? []) },
+      { key: "fps", value: doc.fps == null ? "" : String(doc.fps) },
+    ];
+    // One entry per style, keyed by its name, so two people editing different styles both
+    // keep their edit. A single blob would lose one of the two.
+    for (const style of doc.styles ?? []) {
+      out.push({ key: `style:${style.name ?? ""}`, value: JSON.stringify(style) });
+    }
+    // Tracks travel by label and language only: the cues of a track nobody is looking at
+    // are a whole document of their own, and sharing every one of them would multiply the
+    // session by the number of translations open.
+    for (const track of this.tracks) {
+      out.push({ key: `track:${track.id}`, value: JSON.stringify({ label: track.label, language: track.language }) });
+    }
+    return out;
+  }
+
+  setDocFieldsReporter(handler: ((fields: { key: string; value: string }[]) => void) | null): void {
+    this.docFieldsReporter = handler;
+    this.lastDocFieldsSig = handler ? JSON.stringify(this.docFields()) : null;
+  }
+
+  /** Report what changed beside the cues, if anything did. */
+  private reportDocFields(): void {
+    if (!this.docFieldsReporter) return;
+    const fields = this.docFields();
+    const sig = JSON.stringify(fields);
+    if (sig === this.lastDocFieldsSig) return;
+    this.lastDocFieldsSig = sig;
+    if (this.applyingRemoteDocFields) return;
+    this.docFieldsReporter(fields);
+  }
+
+  applyRemoteDocFields(fields: { key: string; value: string }[]): void {
+    this.applyingRemoteDocFields = true;
+    try {
+      const doc = this.doc;
+      let touched = false;
+      for (const { key, value } of fields) {
+        if (key.startsWith("style:")) {
+          const name = key.slice("style:".length);
+          try {
+            const style = JSON.parse(value) as NonNullable<SubtitleDoc["styles"]>[number];
+            const list = (doc.styles ??= []);
+            const at = list.findIndex((s2) => (s2.name ?? "") === name);
+            if (at >= 0) list[at] = style;
+            else list.push(style);
+            touched = true;
+          } catch {
+            /* unreadable style; leave what is there */
+          }
+          continue;
+        }
+        if (key.startsWith("track:")) {
+          const id = key.slice("track:".length);
+          const track = this.tracks.find((t) => t.id === id);
+          if (!track) continue; // a track this peer does not have: its cues are not here
+          try {
+            const meta = JSON.parse(value) as { label: string; language: string };
+            if (track.label !== meta.label || track.language !== meta.language) {
+              track.label = meta.label;
+              track.language = meta.language;
+              touched = true;
+            }
+          } catch {
+            /* unreadable */
+          }
+          continue;
+        }
+        switch (key) {
+          case "format": doc.format = value as SubtitleDoc["format"]; touched = true; break;
+          case "eol": doc.eol = value === "\r\n" ? "\r\n" : "\n"; touched = true; break;
+          case "bom": doc.bom = value === "true"; touched = true; break;
+          case "finalNewline": doc.finalNewline = value === "true"; touched = true; break;
+          case "header": doc.header = value || undefined; touched = true; break;
+          case "trailingNotes": doc.trailingNotes = value || undefined; touched = true; break;
+          case "assScriptInfo": doc.assScriptInfo = value || undefined; touched = true; break;
+          case "assStylesTail": doc.assStylesTail = value || undefined; touched = true; break;
+          case "assStyleFormat": try { doc.assStyleFormat = JSON.parse(value) as string[]; touched = true; } catch { /* keep */ } break;
+          case "assFormat": try { doc.assFormat = JSON.parse(value) as string[]; touched = true; } catch { /* keep */ } break;
+          case "fps": doc.fps = value === "" ? undefined : Number(value); touched = true; break;
+          default: break;
+        }
+      }
+      if (touched) {
+        // Through the same path a local change takes, so the flag above is the only thing
+        // stopping the echo. Resyncing the signature by hand here instead would work today
+        // and leave that guard unreachable, which is how it stops working later.
+        this.reportDocFields();
+        this.renderTrackBar();
+        this.pushSubtitles();
+      }
+    } finally {
+      this.applyingRemoteDocFields = false;
+    }
+  }
+
   applyRemoteCues(cues: Cue[]): void {
     const keepId = this.selectedId;
     this.doc.cues = cues.map((c) => structuredClone(c));
