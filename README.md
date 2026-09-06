@@ -15,6 +15,12 @@ upload, and models/media are streamed so multi-GB files never sit in RAM.
 
 **[Open subedit →](https://hikashop-nicolas.github.io/subedit/)**
 
+Used in production by **[Omnitext](https://hikashop-nicolas.github.io/omnitext/)**, a free
+browser editor for practically any file, as its editor for
+[SRT](https://hikashop-nicolas.github.io/omnitext/formats/srt.html),
+[WebVTT](https://hikashop-nicolas.github.io/omnitext/formats/vtt.html) and
+[ASS](https://hikashop-nicolas.github.io/omnitext/formats/ass.html) subtitles.
+
 No install, no sign-up, nothing to upload. Open the page and:
 
 - **Open** a subtitle file (`.srt`, `.vtt`, `.ass`, `.ssa`, `.sub`, `.lrc`, `.ttml`, `.sbv`, `.smi`, `.mpl`, `.srv3`, `.stl`) to edit it, or click **New**
