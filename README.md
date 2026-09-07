@@ -84,8 +84,8 @@ than loaded into memory.
 - **Save into the video.** Mux all tracks back into the source container (styled ASS in
   MKV, WebVTT in MP4), stream-copying video/audio with no re-encode, streamed to disk so
   multi-GB files never buffer in memory.
-- **Self-contained i18n** (English, French, Japanese), auto-detected, host-overridable
-  via `setLocale()`.
+- **Self-contained i18n** (English, French, Japanese, Spanish, German, Portuguese, Russian and Simplified Chinese),
+  auto-detected, host-overridable via `setLocale()`.
 
 ## Keyboard & accessibility
 
