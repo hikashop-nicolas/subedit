@@ -1,7 +1,7 @@
 // Main-thread driver for the Whisper worker. Spawns the worker, streams progress, and
 // resolves with word timestamps. Cancelling terminates the worker (transformers.js has no
 // mid-inference abort), which is enough for our flow.
-import { afterConsent } from "localml/consent";
+import { afterConsent, MODEL_HOSTS } from "localml/consent";
 import { whisperModel, type WordTs, type TranscribeProgress, type DtypeSpec } from "./backend";
 
 export interface WhisperResult {
@@ -29,7 +29,7 @@ export interface WhisperOptions {
 export function runWhisper(audio: Float32Array, opts: WhisperOptions, onProgress?: (p: TranscribeProgress) => void): WhisperRun {
   const info = whisperModel(opts.model);
   const run = afterConsent<WhisperRun, WhisperResult>(
-    { feature: "transcribe", hosts: ["huggingface.co"], sizeMb: info?.sizeMb, label: info?.label ?? opts.model },
+    { feature: "transcribe", hosts: MODEL_HOSTS, sizeMb: info?.sizeMb, label: info?.label ?? opts.model },
     () => Promise.reject(declinedError()),
     () => startWhisper(audio, opts, onProgress),
   );
