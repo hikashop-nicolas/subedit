@@ -41,7 +41,7 @@
     "@huggingface/transformers": "^4.2.0",
     "codem-isoboxer": "^0.3.10",
     "localml": "github:hikashop-nicolas/localml",
-    "mediabunny": "github:hikashop-nicolas/mediabunny#7b5c4d0",
+    "mediabunny": "github:hikashop-nicolas/mediabunny#3ccd321",
     "mediaplay": "github:hikashop-nicolas/mediaplay#1b0c7fd"
   },
   "devDependencies": {
