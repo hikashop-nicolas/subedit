@@ -3,7 +3,7 @@
 // transcribe modules (which pull in transformers.js) behind this lazily-imported file.
 import { WHISPER_MODELS, DEFAULT_WHISPER_MODEL } from "./backend";
 import { TRANSLATE_MODELS, DEFAULT_TRANSLATE_MODEL, TRANSLATE_LANGS } from "localml/translate";
-import { runWhisper, type WhisperRun } from "./whisper";
+import { runWhisper, DECLINED, type WhisperRun } from "./whisper";
 import { decodeToMono16k } from "./audio";
 import { segmentToCues, type SegCue } from "./segment";
 import { t } from "../i18n";
@@ -257,7 +257,10 @@ export function openTranscribeDialog(host: TranscribeHost): void {
       host.onResult(cues, mode());
       back.remove();
     } catch (e) {
-      err.textContent = `${t("asrError")}: ${e instanceof Error ? e.message : String(e)}`;
+      // A refused download is the user's answer, not a failure: just put the dialog back.
+      if (!(e instanceof Error && e.name === DECLINED)) {
+        err.textContent = `${t("asrError")}: ${e instanceof Error ? e.message : String(e)}`;
+      }
       status.classList.remove("on");
       startBtn.disabled = false;
       modelSel.disabled = langSel.disabled = false;

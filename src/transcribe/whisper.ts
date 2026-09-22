@@ -1,6 +1,7 @@
 // Main-thread driver for the Whisper worker. Spawns the worker, streams progress, and
 // resolves with word timestamps. Cancelling terminates the worker (transformers.js has no
 // mid-inference abort), which is enough for our flow.
+import { afterConsent } from "localml/consent";
 import { whisperModel, type WordTs, type TranscribeProgress, type DtypeSpec } from "./backend";
 
 export interface WhisperResult {
@@ -26,6 +27,24 @@ export interface WhisperOptions {
 // Kick off a transcription. `audio` must be 16 kHz mono PCM; it is transferred to the
 // worker (do not reuse it afterwards).
 export function runWhisper(audio: Float32Array, opts: WhisperOptions, onProgress?: (p: TranscribeProgress) => void): WhisperRun {
+  const info = whisperModel(opts.model);
+  const run = afterConsent<WhisperRun, WhisperResult>(
+    { feature: "transcribe", hosts: ["huggingface.co"], sizeMb: info?.sizeMb, label: info?.label ?? opts.model },
+    () => Promise.reject(declinedError()),
+    () => startWhisper(audio, opts, onProgress),
+  );
+  return { cancel: run.cancel, done: run.done };
+}
+
+/** The host said no to the model download: the dialog resets instead of reporting an error. */
+export const DECLINED = "RemoteDeclined";
+function declinedError(): Error {
+  const e = new Error("model download not allowed");
+  e.name = DECLINED;
+  return e;
+}
+
+function startWhisper(audio: Float32Array, opts: WhisperOptions, onProgress?: (p: TranscribeProgress) => void): WhisperRun {
   const worker = new Worker(new URL("./whisper.worker.ts", import.meta.url), { type: "module" });
   let device: "webgpu" | "wasm" = "wasm";
 
