@@ -152,6 +152,9 @@ per face the document uses, VSFilter-encoded in 80-column lines and named the SS
 (`Name_0.ttf`, `Name_B0.ttf`, `Name_I0.ttf`, `Name_BI0.ttf`). An `.ass` file is an editable
 document, so a font whose OS/2 fsType is "restricted" or "preview & print" is refused;
 "installable" and "editable" fonts (every catalog font: OFL, Apache, UFL) are embedded.
+A catalog file picked as the nearest weight (Klee One SemiBold for a bold style) is renamed
+into its family (name IDs 1 and 2), since renderers find a face by family or full name;
+installed fonts are embedded untouched.
 Unticking removes those files again; a file whose fonts you do not touch saves byte for byte.
 - `handle.getText()` serializes the current document; `handle.getDoc()` returns the model;
   `handle.loadPreviewMedia(file)` loads a video/audio file into the preview; `handle.focus()`;

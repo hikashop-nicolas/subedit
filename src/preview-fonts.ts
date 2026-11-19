@@ -4,6 +4,8 @@
 import { getFontFile, onFontsChange, parseFontInfo, type FontFile } from "fontshelf";
 import type { SubtitleDoc } from "./cue";
 import { embeddedFonts, fontUsage } from "./formats/ass";
+import { fontNames } from "./fonts";
+import { renameFace } from "./font-rename";
 
 /** Where fonts may come from; mirrors the editor's `fonts` option. */
 export interface FontSources {
@@ -58,13 +60,19 @@ export class PreviewFonts {
     const files = await Promise.all(wanted.map((u) => this.file(u.family, u.weight, u.italic)));
     if (run !== this.run) return;
     const seen = new Set<string>();
-    for (const f of files) {
-      if (!f || f.format === "woff" || f.format === "woff2") continue; // engines get sfnt bytes
-      const key = `${f.source}:${f.postscriptName ?? f.family}:${String(f.weight)}:${f.italic ? 1 : 0}:${f.bytes.length}`;
-      if (seen.has(key)) continue;
+    files.forEach((f, i) => {
+      if (!f || f.format === "woff" || f.format === "woff2") return; // engines get sfnt bytes
+      const u = wanted[i];
+      const key = `${f.source}:${f.postscriptName ?? f.family}:${String(f.weight)}:${f.italic ? 1 : 0}:${f.bytes.length}:${u.family}`;
+      if (seen.has(key)) return;
       seen.add(key);
-      out.push({ name: key, data: f.bytes });
-    }
+      // libass matches the family (ID 1) or full name only: a "Klee One SemiBold" file is
+      // renamed into the family it was picked for, so a bold style finds it.
+      const n = fontNames(f.bytes);
+      const want = u.family.toLowerCase();
+      const named = n[1]?.toLowerCase() === want || n[4]?.toLowerCase() === want;
+      out.push({ name: key, data: named ? f.bytes : this.renamed(f, u.family, u.weight >= 600, u.italic) });
+    });
     this.send(out);
   }
 
@@ -79,6 +87,13 @@ export class PreviewFonts {
   reset(): void {
     this.last = "\u0000";
     this.schedule(0);
+  }
+
+  private renames = new WeakMap<FontFile, Uint8Array>();
+  private renamed(f: FontFile, family: string, bold: boolean, italic: boolean): Uint8Array {
+    let b = this.renames.get(f);
+    if (!b) this.renames.set(f, (b = renameFace(f.bytes, family, bold, italic)));
+    return b;
   }
 
   private file(family: string, weight: number, italic: boolean): Promise<FontFile | null> {

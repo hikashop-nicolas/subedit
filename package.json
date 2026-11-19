@@ -43,7 +43,7 @@
     "fontshelf": "github:hikashop-nicolas/fontshelf#b51e13f",
     "localml": "github:hikashop-nicolas/localml",
     "mediabunny": "github:hikashop-nicolas/mediabunny#3ccd321",
-    "mediaplay": "github:hikashop-nicolas/mediaplay#53488b0"
+    "mediaplay": "github:hikashop-nicolas/mediaplay#216bb47"
   },
   "devDependencies": {
     "cypress": "^15.19.0",

@@ -6,6 +6,8 @@
 import type { AssStyle, SubtitleDoc } from "./cue";
 import { assColorToHex, hexToAssColor, makeDefaultStyle, uniqueStyleName, embeddedFontNames, embedFonts, removeEmbeddedFamily, fontUsage, type FontToEmbed } from "./formats/ass";
 import { t, alignmentOptions } from "./i18n";
+import { fontNames } from "./fonts";
+import { renameFace } from "./font-rename";
 import { createFontSelect, getFontFile, getFontState, type FontFile } from "fontshelf";
 
 export interface StylesEditorHost {
@@ -366,8 +368,14 @@ export function openStyleEditor(host: StylesEditorHost, style: AssStyle): void {
       const key = `${f.postscriptName ?? ""}|${String(f.weight)}|${f.italic}|${f.bytes.length}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      total += f.bytes.length;
-      out.push({ family, bold: u.weight >= 600, italic: u.italic, bytes: f.bytes, ext: f.format === "otf" || f.format === "ttc" ? f.format : "ttf" });
+      // Renderers find a face by its family (ID 1) or full name. A catalog SemiBold file says
+      // "Klee One SemiBold" there, so it is renamed into the family (the licences allow it);
+      // an installed font is embedded untouched.
+      const n = fontNames(f.bytes);
+      const named = [n[1], n[4]].some((x) => x?.toLowerCase() === lower);
+      const bytes = named || f.source !== "remote" ? f.bytes : renameFace(f.bytes, family, u.weight >= 600, u.italic);
+      total += bytes.length;
+      out.push({ family, bold: u.weight >= 600, italic: u.italic, bytes, ext: f.format === "otf" || f.format === "ttc" ? f.format : "ttf" });
     }
     if (isEmbedded(family)) removeEmbeddedFamily(doc, family); // replace, never duplicate
     embedFonts(doc, out);

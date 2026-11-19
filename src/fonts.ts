@@ -24,9 +24,10 @@ export function uudecode(encoded: string): Uint8Array {
   return new Uint8Array(out);
 }
 
-// Read the family (name ID 16, else 1) or full name (4) from a sfnt/TTC font binary. Prefers the
-// Windows platform record. Returns null on any structural problem.
-function fontFamily(bytes: Uint8Array): string | null {
+// The family (ID 1), full (4) and typographic family (16) names of a sfnt/TTC binary (its
+// first face), Windows records preferred. Empty on any structural problem.
+export function fontNames(bytes: Uint8Array): { 1?: string; 4?: string; 16?: string } {
+  const out: { [id: number]: string } = {};
   try {
     const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const u16 = (o: number) => dv.getUint16(o);
@@ -42,11 +43,10 @@ function fontFamily(bytes: Uint8Array): string | null {
         break;
       }
     }
-    if (nameOff < 0) return null;
+    if (nameOff < 0) return out;
     const count = u16(nameOff + 2);
     const storage = nameOff + u16(nameOff + 4);
-    let best: string | null = null;
-    let bestScore = -1;
+    const win: { [id: number]: boolean } = {};
     for (let i = 0; i < count; i++) {
       const rec = nameOff + 6 + i * 12;
       const platformID = u16(rec);
@@ -54,23 +54,28 @@ function fontFamily(bytes: Uint8Array): string | null {
       const len = u16(rec + 8);
       const off = storage + u16(rec + 10);
       if (nameID !== 1 && nameID !== 4 && nameID !== 16) continue;
+      if (win[nameID] && platformID !== 3) continue;
       let s = "";
       if (platformID === 3 || platformID === 0) {
         for (let j = 0; j + 1 < len; j += 2) s += String.fromCharCode(u16(off + j)); // UTF-16BE
       } else {
         for (let j = 0; j < len; j++) s += String.fromCharCode(bytes[off + j]); // Mac/ASCII
       }
-      // Typographic family (16) groups a SemiBold file with its family; then 1, then 4.
-      const score = (nameID === 16 ? 4 : nameID === 1 ? 2 : 0) + (platformID === 3 ? 1 : 0);
-      if (s.trim() && score > bestScore) {
-        best = s.trim();
-        bestScore = score;
-      }
+      if (!s.trim() || (out[nameID] && platformID !== 3)) continue;
+      out[nameID] = s.trim();
+      if (platformID === 3) win[nameID] = true;
     }
-    return best;
   } catch {
-    return null;
+    /* leave what was read */
   }
+  return out;
+}
+
+// The family a font belongs to: typographic family (16) groups a SemiBold file with its
+// family; then 1, then the full name.
+function fontFamily(bytes: Uint8Array): string | null {
+  const n = fontNames(bytes);
+  return n[16] ?? n[1] ?? n[4] ?? null;
 }
 
 // A [Section] header. Encoded font data uses only 0x21..0x60, so a line like "[A]" inside

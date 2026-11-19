@@ -142,3 +142,17 @@ describe("embedding fonts in [Fonts]", async () => {
     expect(uses).toEqual(["Klee One/700/", "Klee One/700/i", "Lobster/400/", "Lobster/700/", "Lobster/700/i"]);
   });
 });
+
+describe("renaming a face for libass", async () => {
+  const { renameFace } = await import("./font-rename");
+  const { fontNames } = await import("./fonts");
+  it("rewrites the family (ID 1) and leaves the rest readable", () => {
+    const out = renameFace(makeFont("Klee One SemiBold"), "Klee One", true, false);
+    expect(fontNames(out)[1]).toBe("Klee One");
+    expect(parseEmbeddedFonts(`[Fonts]\nfontname: a_0.ttf\n${uuencode(out)}`)[0].family).toBe("Klee One");
+  });
+  it("returns a collection or junk unchanged", () => {
+    const junk = new Uint8Array([1, 2, 3, 4, 5]);
+    expect(renameFace(junk, "X", false, false)).toBe(junk);
+  });
+});
