@@ -144,8 +144,8 @@ const edited = handle.getText(); // the edited file, serialized in its format
 libass draws only with font files it is handed, so the preview resolves every face the
 styles and `\fn`/`\b`/`\i` overrides use: fonts embedded in the file's `[Fonts]` section
 first, then installed fonts (once the local-fonts permission is granted) and catalog fonts
-(after consent), as static instances at the right weight, so a bold style draws with a bold
-face. The style editor's font field stays free text, next to the shared font picker.
+(after consent, Google Fonts' static file of the nearest weight), so a bold style draws with
+a bold face. The style editor's font field stays free text, next to the shared font picker.
 
 **Embed in file** (style editor, off by default) writes the font's files into `[Fonts]`, one
 per face the document uses, VSFilter-encoded in 80-column lines and named the SSA way

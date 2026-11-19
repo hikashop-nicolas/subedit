@@ -100,7 +100,7 @@ export class PreviewFonts {
     const key = `${family.toLowerCase()}|${weight}|${italic ? 1 : 0}`;
     let p = this.files.get(key);
     if (!p) {
-      p = getFontFile(family, { weight, italic, instance: true, local: this.sources.local, remote: this.sources.remote }).catch(() => null);
+      p = getFontFile(family, { weight, italic, local: this.sources.local, remote: this.sources.remote }).catch(() => null);
       this.files.set(key, p);
     }
     return p;

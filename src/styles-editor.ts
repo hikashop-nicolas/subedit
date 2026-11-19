@@ -358,7 +358,7 @@ export function openStyleEditor(host: StylesEditorHost, style: AssStyle): void {
     // One at a time. Without a prompt first (granted permission, cache, catalog); only then
     // may the local-fonts permission prompt show.
     const get = (u: { weight: number; italic: boolean }, gesture: boolean): Promise<FontFile | null> =>
-      getFontFile(family, { weight: u.weight, italic: u.italic, instance: true, gesture, local, remote }).catch(() => null);
+      getFontFile(family, { weight: u.weight, italic: u.italic, gesture, local, remote }).catch(() => null);
     for (const u of uses) {
       const f = (await get(u, false)) ?? (local ? await get(u, true) : null);
       if (!f) return t("fontEmbedMissing", { name: family });

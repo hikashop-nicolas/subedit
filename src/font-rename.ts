@@ -1,7 +1,7 @@
 // Rename a static font face so libass finds it by its family. libass matches the family
 // (name ID 1) and full name only, and a SemiBold file usually says "Klee One SemiBold" in
-// ID 1 ("Klee One" only in ID 16). We rewrite ID 1 to the family and ID 2 to the RIBBI
-// style, as fontshelf does for its instances. Collections and broken files come back as is.
+// ID 1 (the family only in ID 16, if at all). We rewrite ID 1 to the family and ID 2 to the RIBBI
+// style. Collections and broken files come back as is.
 
 const RIBBI = (bold: boolean, italic: boolean): string => (bold ? (italic ? "Bold Italic" : "Bold") : italic ? "Italic" : "Regular");
 
