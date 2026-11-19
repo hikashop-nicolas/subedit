@@ -1,11 +1,10 @@
 // Font files for the libass preview. libass only draws with font files it is handed, so the
 // faces the document uses are resolved to bytes: the file's own [Fonts] first, then
 // fontshelf (installed fonts with the local-fonts permission, catalog fonts after consent).
-import { getFontFile, onFontsChange, parseFontInfo, type FontFile } from "fontshelf";
+import { getFontFile, onFontsChange, parseFontInfo, renameFace, type FontFile } from "fontshelf";
 import type { SubtitleDoc } from "./cue";
 import { embeddedFonts, fontUsage } from "./formats/ass";
 import { fontNames } from "./fonts";
-import { renameFace } from "./font-rename";
 
 /** Where fonts may come from; mirrors the editor's `fonts` option. */
 export interface FontSources {
@@ -66,12 +65,12 @@ export class PreviewFonts {
       const key = `${f.source}:${f.postscriptName ?? f.family}:${String(f.weight)}:${f.italic ? 1 : 0}:${f.bytes.length}:${u.family}`;
       if (seen.has(key)) return;
       seen.add(key);
-      // libass matches the family (ID 1) or full name only: a "Klee One SemiBold" file is
-      // renamed into the family it was picked for, so a bold style finds it.
+      // libass matches the family (ID 1) or full name only. fontshelf already renames catalog
+      // files; an installed face named otherwise is renamed here, for the preview only.
       const n = fontNames(f.bytes);
       const want = u.family.toLowerCase();
       const named = n[1]?.toLowerCase() === want || n[4]?.toLowerCase() === want;
-      out.push({ name: key, data: named ? f.bytes : this.renamed(f, u.family, u.weight >= 600, u.italic) });
+      out.push({ name: key, data: named ? f.bytes : this.renamed(f, u.family) });
     });
     this.send(out);
   }
@@ -90,9 +89,9 @@ export class PreviewFonts {
   }
 
   private renames = new WeakMap<FontFile, Uint8Array>();
-  private renamed(f: FontFile, family: string, bold: boolean, italic: boolean): Uint8Array {
+  private renamed(f: FontFile, family: string): Uint8Array {
     let b = this.renames.get(f);
-    if (!b) this.renames.set(f, (b = renameFace(f.bytes, family, bold, italic)));
+    if (!b) this.renames.set(f, (b = renameFace(f.bytes, family)));
     return b;
   }
 
