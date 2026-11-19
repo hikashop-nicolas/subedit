@@ -60,3 +60,85 @@ describe("embedded font name decoding", () => {
     expect(fonts[0].family).toBeNull();
   });
 });
+
+describe("embedding fonts in [Fonts]", async () => {
+  const { uuencode: encode, uudecode } = await import("./fonts");
+  const { parseAss, serializeAss, embedFonts, embeddedFonts, embeddedFontNames, removeEmbeddedFamily, withoutFontsSection, fontUsage } = await import("./formats/ass");
+
+  const ASS = [
+    "[Script Info]",
+    "ScriptType: v4.00+",
+    "",
+    "[V4+ Styles]",
+    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+    "Style: Default,Lobster,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1",
+    "Style: Loud,Lobster,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1",
+    "",
+    "[Events]",
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    "Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Hello",
+    "Dialogue: 0,0:00:03.00,0:00:05.00,Loud,,0,0,0,,{\\fnKlee One\\i1}Bold",
+    "",
+  ].join("\r\n");
+
+  it("encode then decode returns identical bytes, any tail length", () => {
+    for (const len of [0, 1, 2, 3, 4, 5, 59, 60, 61, 62, 1000, 4099]) {
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) bytes[i] = (i * 151 + 7) & 0xff;
+      const text = encode(bytes, "\r\n");
+      expect(uudecode(text)).toEqual(bytes);
+      const lines = text ? text.split("\r\n") : [];
+      for (const l of lines.slice(0, -1)) expect(l.length).toBe(80);
+      if (lines.length) expect(lines[lines.length - 1].length).toBeLessThanOrEqual(80);
+    }
+  });
+
+  it("adds a [Fonts] section before [Events], reads it back, removes it byte-identically", () => {
+    const doc = parseAss(ASS);
+    const regular = makeFont("Lobster");
+    const bold = new Uint8Array([...makeFont("Lobster"), 0x42]);
+    embedFonts(doc, [
+      { family: "Lobster", bold: false, italic: false, bytes: regular, ext: "ttf" },
+      { family: "Lobster", bold: true, italic: false, bytes: bold, ext: "ttf" },
+    ]);
+    const out = serializeAss(doc);
+    expect(out).toContain("\r\n\r\n[Fonts]\r\nfontname: Lobster_0.ttf\r\n");
+    expect(out).toContain("fontname: Lobster_B0.ttf\r\n");
+    expect(out.indexOf("[Fonts]")).toBeLessThan(out.indexOf("[Events]"));
+    expect(out).toMatch(/\r\n\r\n\[Events\]/);
+    // Reload: same names, same bytes, and a byte-identical round trip.
+    const again = parseAss(out);
+    expect(serializeAss(again)).toBe(out);
+    expect(embeddedFontNames(again)).toEqual(["Lobster"]);
+    const files = embeddedFonts(again);
+    expect(files.map((f) => f.filename)).toEqual(["Lobster_0.ttf", "Lobster_B0.ttf"]);
+    expect(files[0].bytes).toEqual(regular);
+    expect(files[1].bytes).toEqual(bold);
+    // Remove: the file is exactly what it was.
+    expect(removeEmbeddedFamily(again, "lobster")).toBe(2);
+    expect(serializeAss(again)).toBe(ASS);
+  });
+
+  it("appends to an existing [Fonts] section and keeps the rest", () => {
+    const existing = ASS.replace("\r\n[Events]", "\r\n[Fonts]\r\nfontname: Other_0.ttf\r\n" + encode(makeFont("Other"), "\r\n") + "\r\n\r\n[Events]");
+    const doc = parseAss(existing);
+    expect(serializeAss(doc)).toBe(existing); // untouched files stay byte-identical
+    embedFonts(doc, [{ family: "Lobster", bold: false, italic: false, bytes: makeFont("Lobster"), ext: "ttf" }]);
+    const out = serializeAss(doc);
+    expect(out.match(/\[Fonts\]/g)).toHaveLength(1);
+    expect(embeddedFontNames(parseAss(out))).toEqual(["Other", "Lobster"]);
+    removeEmbeddedFamily(doc, "Lobster");
+    expect(serializeAss(doc)).toBe(existing);
+  });
+
+  it("treats encoded lines that look like [A] as data, not a section", () => {
+    const raw = ["[Fonts]", "fontname: X_0.ttf", "[ABC]", "!!!!", "[Events]"].join("\n");
+    expect(parseEmbeddedFonts(raw)[0].bytes.length).toBeGreaterThan(0);
+    expect(withoutFontsSection(raw + "\n")).toBe("[Events]\n");
+  });
+
+  it("lists the faces the styles and overrides use", () => {
+    const uses = fontUsage(parseAss(ASS)).map((u) => `${u.family}/${u.weight}/${u.italic ? "i" : ""}`).sort();
+    expect(uses).toEqual(["Klee One/700/", "Klee One/700/i", "Lobster/400/", "Lobster/700/", "Lobster/700/i"]);
+  });
+});

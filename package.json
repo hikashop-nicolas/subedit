@@ -40,9 +40,10 @@
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
     "codem-isoboxer": "^0.3.10",
+    "fontshelf": "github:hikashop-nicolas/fontshelf#b51e13f",
     "localml": "github:hikashop-nicolas/localml",
     "mediabunny": "github:hikashop-nicolas/mediabunny#3ccd321",
-    "mediaplay": "github:hikashop-nicolas/mediaplay#1b0c7fd"
+    "mediaplay": "github:hikashop-nicolas/mediaplay#53488b0"
   },
   "devDependencies": {
     "cypress": "^15.19.0",

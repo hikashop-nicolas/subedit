@@ -39,10 +39,12 @@ import { ICON } from "./icons";
 import { SHORTCUTS, type Shortcut } from "./shortcuts";
 import { injectStyles } from "./styles";
 import { parseSubtitles, serializeSubtitles, convertDoc } from "./formats";
-import { styleNames, assColorToHex, makeDefaultStyle, uniqueStyleName, getPlayRes, embeddedFontNames } from "./formats/ass";
+import { styleNames, assColorToHex, makeDefaultStyle, uniqueStyleName, getPlayRes, embeddedFontNames, withoutFontsSection } from "./formats/ass";
+import { getFontState, setFontLocale, setRemoteEnabled } from "fontshelf";
+import { PreviewFonts } from "./preview-fonts";
 import { openStyleEditor, openScriptProperties } from "./styles-editor";
 import { openKaraoke } from "./karaoke";
-import { setLocale, t, alignmentOptions } from "./i18n";
+import { setLocale, t, alignmentOptions, localeCode } from "./i18n";
 import { Timeline } from "./waveform";
 import { createMediaPlayer, extractWaveformPeaks, extractMkvSubtitles, type MediaPlayerHandle, type MkvSubtitleTrack } from "mediaplay";
 import { extractMp4Subtitles } from "./mp4subs";
@@ -72,8 +74,19 @@ export interface SubtitleEditorOptions {
   locale?: string;
   // Show the toolbar Save button (downloads the file). Hosts that own saving pass false.
   showSave?: boolean;
+  /**
+   * Font sources for the style font picker and the libass preview (fontshelf). `local`
+   * offers "Show my fonts" (default true); `remote` offers "Get more fonts" from Google
+   * Fonts after the user's consent (default off).
+   */
+  fonts?: FontOptions;
   /** The cue this person moved to. A shared session publishes it so the others can see it. */
   onSelectionChanged?: (cueId: string | null) => void;
+}
+
+export interface FontOptions {
+  local?: boolean;
+  remote?: false | { provider: "google" };
 }
 
 /** Undo and redo, when a host owns them (a collaboration session). */
@@ -235,6 +248,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private headEl!: HTMLDivElement;
   private rightEl!: HTMLDivElement;
   private player: MediaPlayerHandle | null = null;
+  private previewFonts: PreviewFonts;
   private video: HTMLMediaElement | null = null;
   private mediaFile: File | null = null; // the original file; streamed from disk (never held whole in RAM)
   private mediaContainer: "mkv" | "mp4" = "mp4"; // detected at load, for save-into-video
@@ -285,6 +299,10 @@ class SubtitleEditor implements SubtitleEditorHandle {
   constructor(container: HTMLElement, input: SubtitleInput, opts: SubtitleEditorOptions) {
     this.opts = opts;
     if (opts.locale) setLocale(opts.locale);
+    setFontLocale(localeCode());
+    const remote = !!opts.fonts?.remote && opts.fonts.remote.provider === "google";
+    if (remote) setRemoteEnabled(true);
+    this.previewFonts = new PreviewFonts({ local: opts.fonts?.local !== false, remote }, () => this.doc, (fonts) => this.player?.setSubtitleFonts(fonts));
     injectStyles();
     const meta = deriveTrackMeta(input.filename);
     this.tracks = [{ id: newTrackId(), label: meta.label, language: meta.language, doc: parseSubtitles(input.text, input.filename) }];
@@ -995,6 +1013,8 @@ class SubtitleEditor implements SubtitleEditorHandle {
     for (const s of this.doc.styles ?? []) if (s.fields.Fontname) fonts.add(s.fields.Fontname);
     for (const f of embeddedFontNames(this.doc)) fonts.add(f);
     for (const f of ["Arial", "Helvetica", "Times New Roman", "Verdana", "Tahoma", "Trebuchet MS", "Georgia", "Courier New", "Comic Sans MS"]) fonts.add(f);
+    const st = getFontState();
+    for (const f of [...st.added, ...st.installed]) fonts.add(f);
     for (const f of fonts) {
       const o = document.createElement("option");
       o.value = f;
@@ -2064,6 +2084,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
         onRenameStyle: (from, to) => {
           for (const c of this.doc.cues) if (c.assFields?.Style === from) c.assFields.Style = to;
         },
+        fonts: this.opts.fonts,
       },
       style,
     );
@@ -2802,6 +2823,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
     this.mediaContainer = bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3 ? "mkv" : "mp4";
     this.loadEmbeddedTracks(bytes); // before the player, so subs load even if it can't decode the media
     this.player = createMediaPlayer(host, { blob: file, mime: file.type, filename: file.name }, { embedded: true });
+    this.previewFonts.reset();
     const v = this.player.getMediaElement() ?? null;
     this.video = v;
     if (v) {
@@ -2894,7 +2916,12 @@ class SubtitleEditor implements SubtitleEditorHandle {
   private pushSubtitles(immediate = false): void {
     if (!this.player) return;
     window.clearTimeout(this.subtitleTimer);
-    const send = () => this.player?.setSubtitleText(serializeSubtitles(this.doc), `subtitles.${this.doc.format}`);
+    // Embedded fonts reach libass once as files (PreviewFonts), not with every edit.
+    const send = () => {
+      const text = serializeSubtitles(this.doc);
+      this.player?.setSubtitleText(this.doc.format === "ass" ? withoutFontsSection(text) : text, `subtitles.${this.doc.format}`);
+    };
+    this.previewFonts.schedule();
     if (immediate) send();
     else this.subtitleTimer = window.setTimeout(send, 300);
   }
@@ -3349,6 +3376,7 @@ class SubtitleEditor implements SubtitleEditorHandle {
   }
   destroy(): void {
     window.clearTimeout(this.subtitleTimer);
+    this.previewFonts.destroy();
     window.clearTimeout(this.toastTimer);
     window.clearTimeout(this.histTimer);
     this.tbObserver?.disconnect();

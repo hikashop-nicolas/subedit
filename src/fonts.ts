@@ -6,10 +6,12 @@
 export interface EmbeddedFont {
   filename: string;
   family: string | null;
+  /** The decoded font file. */
+  bytes: Uint8Array;
 }
 
 // Decode VSFilter-embedded font data (a run of encoded lines) to bytes.
-function uudecode(encoded: string): Uint8Array {
+export function uudecode(encoded: string): Uint8Array {
   const chars = encoded.replace(/[^\x21-\x60]/g, ""); // keep only the 33..96 alphabet
   const out: number[] = [];
   for (let i = 0; i < chars.length; i += 4) {
@@ -22,7 +24,7 @@ function uudecode(encoded: string): Uint8Array {
   return new Uint8Array(out);
 }
 
-// Read the family (name ID 1) or full name (4) from a sfnt/TTC font binary. Prefers the
+// Read the family (name ID 16, else 1) or full name (4) from a sfnt/TTC font binary. Prefers the
 // Windows platform record. Returns null on any structural problem.
 function fontFamily(bytes: Uint8Array): string | null {
   try {
@@ -51,14 +53,15 @@ function fontFamily(bytes: Uint8Array): string | null {
       const nameID = u16(rec + 6);
       const len = u16(rec + 8);
       const off = storage + u16(rec + 10);
-      if (nameID !== 1 && nameID !== 4) continue;
+      if (nameID !== 1 && nameID !== 4 && nameID !== 16) continue;
       let s = "";
       if (platformID === 3 || platformID === 0) {
         for (let j = 0; j + 1 < len; j += 2) s += String.fromCharCode(u16(off + j)); // UTF-16BE
       } else {
         for (let j = 0; j < len; j++) s += String.fromCharCode(bytes[off + j]); // Mac/ASCII
       }
-      const score = (nameID === 1 ? 2 : 0) + (platformID === 3 ? 1 : 0);
+      // Typographic family (16) groups a SemiBold file with its family; then 1, then 4.
+      const score = (nameID === 16 ? 4 : nameID === 1 ? 2 : 0) + (platformID === 3 ? 1 : 0);
       if (s.trim() && score > bestScore) {
         best = s.trim();
         bestScore = score;
@@ -70,6 +73,12 @@ function fontFamily(bytes: Uint8Array): string | null {
   }
 }
 
+// A [Section] header. Encoded font data uses only 0x21..0x60, so a line like "[A]" inside
+// it is data: a real header has a lowercase letter.
+export function isSectionHeader(line: string): boolean {
+  return /^\[[^\]]*[a-z][^\]]*\]$/.test(line.trim());
+}
+
 // Parse every embedded font declared in the raw ASS text (the section is byte-preserved,
 // so we scan for its "fontname:" markers directly).
 export function parseEmbeddedFonts(raw: string): EmbeddedFont[] {
@@ -78,8 +87,9 @@ export function parseEmbeddedFonts(raw: string): EmbeddedFont[] {
   let current: { filename: string; data: string[] } | null = null;
   const flush = () => {
     if (!current) return;
-    const family = current.data.length ? fontFamily(uudecode(current.data.join(""))) : null;
-    fonts.push({ filename: current.filename, family });
+    const bytes = uudecode(current.data.join(""));
+    const family = bytes.length ? fontFamily(bytes) : null;
+    fonts.push({ filename: current.filename, family, bytes });
     current = null;
   };
   for (const line of lines) {
@@ -87,7 +97,7 @@ export function parseEmbeddedFonts(raw: string): EmbeddedFont[] {
     if (m) {
       flush();
       current = { filename: m[1], data: [] };
-    } else if (/^\[.+\]\s*$/.test(line)) {
+    } else if (isSectionHeader(line)) {
       flush(); // a new [Section] ends the font list
     } else if (current) {
       current.data.push(line);
@@ -95,4 +105,39 @@ export function parseEmbeddedFonts(raw: string): EmbeddedFont[] {
   }
   flush();
   return fonts;
+}
+
+// The inverse of uudecode, as Aegisub writes it: 3 bytes -> 4 chars (6-bit value + 33), a
+// short tail as 2 or 3 chars, wrapped at 80 columns with no line break after the last.
+export function uuencode(bytes: Uint8Array, eol = "\r\n"): string {
+  const lines: string[] = [];
+  let line = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const n = Math.min(3, bytes.length - i);
+    const b0 = bytes[i];
+    const b1 = n > 1 ? bytes[i + 1] : 0;
+    const b2 = n > 2 ? bytes[i + 2] : 0;
+    const v = [b0 >> 2, ((b0 & 3) << 4) | (b1 >> 4), ((b1 & 15) << 2) | (b2 >> 6), b2 & 63];
+    for (let k = 0; k <= n; k++) {
+      line += String.fromCharCode(v[k] + 33);
+      if (line.length === 80) {
+        lines.push(line);
+        line = "";
+      }
+    }
+  }
+  if (line) lines.push(line);
+  return lines.join(eol);
+}
+
+// The SSA name for an embedded font file: "<name>_<B><I><charset>.<ext>", e.g. Lobster_0.ttf,
+// Klee One_B0.ttf. Renderers read the family from the font itself; this is for people.
+export function embeddedFontFilename(family: string, bold: boolean, italic: boolean, ext: string, charset = 0): string {
+  const base = family.replace(/[\\/:*?"<>|\x00-\x1f]/g, "").trim() || "font";
+  return `${base}_${bold ? "B" : ""}${italic ? "I" : ""}${charset}.${ext}`;
+}
+
+// One "fontname:" entry of a [Fonts] section, its lines joined with eol.
+export function encodeEmbeddedFont(filename: string, bytes: Uint8Array, eol: string): string {
+  return `fontname: ${filename}${eol}${uuencode(bytes, eol)}`;
 }

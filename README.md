@@ -53,7 +53,8 @@ than loaded into memory.
   convert between them from the toolbar. ASS keeps its Script Info, styles, fonts and
   comments byte-for-byte, rebuilding only the lines you edit.
 - **ASS styling and effects.** A per-cue **Style** picker and a **styles editor** to
-  create / edit / duplicate / delete style definitions (font with a used-fonts list, size,
+  create / edit / duplicate / delete style definitions (font picker with document, installed
+  and catalog fonts, optional embedding in `[Fonts]`, size,
   fill/karaoke/outline/shadow colours, bold/italic/underline/strikeout, scale, spacing,
   angle, border style, margins, encoding). Per-cue fields for actor, effect, layer,
   margins, and a **disable (comment)** toggle. An **inline toolbar** for bold/italic/
@@ -133,6 +134,25 @@ const edited = handle.getText(); // the edited file, serialized in its format
 - `options.onChange?()` fires after any edit.
 - `options.locale?` forces a UI locale (else auto-detected).
 - `options.showSave?` toggles the toolbar Save button (hosts that own saving pass false).
+- `options.fonts?: { local?: boolean; remote?: false | { provider: "google" } }` sets the font
+  sources (via [fontshelf](https://github.com/hikashop-nicolas/fontshelf)): `local` offers
+  "Show my fonts" (default on), `remote` offers "Get more fonts" from the Google Fonts
+  catalog after the user's consent (default off). Locale follows the editor's.
+
+### Fonts
+
+libass draws only with font files it is handed, so the preview resolves every face the
+styles and `\fn`/`\b`/`\i` overrides use: fonts embedded in the file's `[Fonts]` section
+first, then installed fonts (once the local-fonts permission is granted) and catalog fonts
+(after consent), as static instances at the right weight, so a bold style draws with a bold
+face. The style editor's font field stays free text, next to the shared font picker.
+
+**Embed in file** (style editor, off by default) writes the font's files into `[Fonts]`, one
+per face the document uses, VSFilter-encoded in 80-column lines and named the SSA way
+(`Name_0.ttf`, `Name_B0.ttf`, `Name_I0.ttf`, `Name_BI0.ttf`). An `.ass` file is an editable
+document, so a font whose OS/2 fsType is "restricted" or "preview & print" is refused;
+"installable" and "editable" fonts (every catalog font: OFL, Apache, UFL) are embedded.
+Unticking removes those files again; a file whose fonts you do not touch saves byte for byte.
 - `handle.getText()` serializes the current document; `handle.getDoc()` returns the model;
   `handle.loadPreviewMedia(file)` loads a video/audio file into the preview; `handle.focus()`;
   `handle.destroy()`.

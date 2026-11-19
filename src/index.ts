@@ -12,6 +12,7 @@ export {
   newCueId,
   type SubtitleInput,
   type SubtitleEditorOptions,
+  type FontOptions,
   type SubtitleEditorHandle,
   type UndoHandler,
 } from "./editor";
@@ -31,7 +32,8 @@ export {
 } from "./cue";
 export { parseSrt, serializeSrt } from "./formats/srt";
 export { parseVtt, serializeVtt } from "./formats/vtt";
-export { parseAss, serializeAss } from "./formats/ass";
+export { parseAss, serializeAss, embeddedFonts, embedFonts, removeEmbeddedFamily, fontUsage, type FontToEmbed, type FontUse } from "./formats/ass";
+export { uuencode, uudecode, parseEmbeddedFonts, type EmbeddedFont } from "./fonts";
 export { parseMicroDvd, serializeMicroDvd } from "./formats/microdvd";
 export { parseLrc, serializeLrc } from "./formats/lrc";
 export { parseTtml, serializeTtml } from "./formats/ttml";

@@ -4,14 +4,41 @@
 // plus Duplicate and Delete. Fields it doesn't surface are preserved on the style object.
 
 import type { AssStyle, SubtitleDoc } from "./cue";
-import { assColorToHex, hexToAssColor, makeDefaultStyle, uniqueStyleName, embeddedFontNames } from "./formats/ass";
+import { assColorToHex, hexToAssColor, makeDefaultStyle, uniqueStyleName, embeddedFontNames, embedFonts, removeEmbeddedFamily, fontUsage, type FontToEmbed } from "./formats/ass";
 import { t, alignmentOptions } from "./i18n";
+import { createFontSelect, getFontFile, getFontState, type FontFile } from "fontshelf";
 
 export interface StylesEditorHost {
   getDoc(): SubtitleDoc;
   onChange(): void; // the style was edited/added/removed
   onRenameStyle(from: string, to: string): void; // update cues referencing the style
+  /** Font sources for the picker (see SubtitleEditorOptions.fonts). */
+  fonts?: { local?: boolean; remote?: false | { provider: "google" } };
 }
+
+// Fonts the document names: style fonts, \fn overrides and embedded families.
+export function documentFonts(doc: SubtitleDoc): string[] {
+  const out = new Map<string, string>();
+  const add = (n: string): void => {
+    const name = n.replace(/^@/, "").trim();
+    if (name && !out.has(name.toLowerCase())) out.set(name.toLowerCase(), name);
+  };
+  for (const s of doc.styles ?? []) add(s.fields.Fontname ?? "");
+  for (const c of doc.cues) for (const m of c.text.matchAll(/\\fn([^\\}]*)/g)) add(m[1]);
+  for (const f of embeddedFontNames(doc)) add(f);
+  return [...out.values()];
+}
+
+// Why a font file may not go into a subtitle file, or null when it may. An .ass file is an
+// editable document, so fsType "restricted" and "preview-print" (read-only documents only)
+// both refuse; "installable" and "editable" allow it.
+export function embedRefusal(f: FontFile): "restricted" | "format" | null {
+  if (f.format === "woff" || f.format === "woff2" || f.embeddable === false) return "format";
+  if (f.embeddable === "restricted" || f.embedding === "restricted" || f.embedding === "preview-print") return "restricted";
+  return null;
+}
+
+const sizeText = (n: number): string => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`);
 
 let stylesCssInjected = false;
 function injectStylesCss(): void {
@@ -28,6 +55,14 @@ function injectStylesCss(): void {
   text-transform:uppercase;letter-spacing:.03em;white-space:nowrap;}
 .se-modal-body .se-f-name{flex:1 1 100%;}
 .se-modal-body .se-f-font{flex:1 1 200px;}
+.se-modal-body .se-fontrow{display:flex;gap:6px;}
+.se-modal-body .se-fontrow input{flex:1 1 auto;min-width:0;}
+.se-modal-body .se-fontrow select{flex:0 0 130px;width:130px;}
+.se-modal-body .se-f-embed{flex:1 1 100%;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--se-muted,#9aa0aa);}
+.se-modal-body .se-f-embed label{flex-direction:row;align-items:center;gap:6px;font-size:12px;text-transform:none;letter-spacing:0;color:var(--se-fg,#e6e7ea);}
+.se-modal-body .se-embed-status{white-space:normal;}
+.se-modal-back{--fontshelf-bg:var(--se-bg,#1c1d21);--fontshelf-fg:var(--se-fg,#e6e7ea);--fontshelf-border:var(--se-border,#33353b);
+  --fontshelf-accent:var(--se-accent,#2563eb);--fontshelf-input-bg:var(--se-head,#25272c);--fontshelf-z:1001;}
 .se-modal-body .se-f-size{flex:0 0 80px;}
 .se-modal-body .se-f-align{flex:0 0 160px;}
 .se-modal-body .se-f-margin{flex:0 0 72px;}
@@ -97,7 +132,11 @@ export function openStyleEditor(host: StylesEditorHost, style: AssStyle): void {
   modal.append(head, body, foot);
   document.body.appendChild(back);
 
-  const close = (): void => back.remove();
+  const onClose: (() => void)[] = [];
+  const close = (): void => {
+    for (const fn of onClose) fn();
+    back.remove();
+  };
   closeBtn.addEventListener("click", close);
   doneBtn.addEventListener("click", close);
   back.addEventListener("click", (e) => {
@@ -215,37 +254,134 @@ export function openStyleEditor(host: StylesEditorHost, style: AssStyle): void {
       host.onChange();
     }),
   );
-  // Font (with a datalist of fonts used in this file) + size.
+  // Font: free text (ASS names any font) plus fontshelf's picker (document fonts, installed
+  // fonts after "Show my fonts", catalog fonts after "Get more fonts").
   const fontWrap = document.createElement("label");
   fontWrap.className = "se-f-font";
   fontWrap.textContent = t("styleFont");
+  const fontRow = document.createElement("div");
+  fontRow.className = "se-fontrow";
   const fontInput = document.createElement("input");
   fontInput.type = "text";
   fontInput.value = style.fields.Fontname ?? "";
   fontInput.setAttribute("list", "se-fontlist");
-  fontInput.addEventListener("change", () => {
-    style.fields.Fontname = fontInput.value;
-    host.onChange();
-  });
   const datalist = document.createElement("datalist");
   datalist.id = "se-fontlist";
-  const fonts = new Set<string>();
-  for (const s of doc.styles ?? []) if (s.fields.Fontname) fonts.add(s.fields.Fontname);
-  for (const f of embeddedFontNames(doc)) fonts.add(f);
-  for (const f of ["Arial", "Helvetica", "Times New Roman", "Verdana", "Tahoma", "Trebuchet MS", "Georgia", "Courier New", "Comic Sans MS"]) fonts.add(f);
-  for (const f of fonts) {
-    const o = document.createElement("option");
-    o.value = f;
-    datalist.appendChild(o);
-  }
-  fontWrap.append(fontInput, datalist);
+  const fillDatalist = (): void => {
+    const st = getFontState();
+    const names = new Set([...documentFonts(doc), ...st.added, ...st.installed]);
+    datalist.replaceChildren(...[...names].map((f) => {
+      const o = document.createElement("option");
+      o.value = f;
+      return o;
+    }));
+  };
+  fillDatalist();
+  const fontOpts = host.fonts;
+  const picker = createFontSelect({
+    docFonts: documentFonts(doc),
+    local: fontOpts?.local,
+    remote: fontOpts?.remote ?? false,
+    container: back,
+    apply: (family) => {
+      fontInput.value = family;
+      commitFont();
+    },
+  });
+  picker.select.classList.add("se-fontpick");
+  picker.set(fontInput.value);
+  const commitFont = (): void => {
+    style.fields.Fontname = fontInput.value.trim();
+    picker.setDocFonts(documentFonts(doc));
+    picker.set(style.fields.Fontname);
+    fillDatalist();
+    refreshEmbed();
+    host.onChange();
+  };
+  fontInput.addEventListener("change", commitFont);
+  fontRow.append(fontInput, picker.select);
+  fontWrap.append(fontRow, datalist);
   gGeneral.appendChild(fontWrap);
+  onClose.push(() => picker.teardown());
+
+  // Embed the font files into the file's [Fonts] section, so players without the font draw it.
+  // Off unless asked: installed fonts carry their own licences and a CJK font weighs megabytes.
+  const embedRow = document.createElement("div");
+  embedRow.className = "se-f-embed";
+  const embedLabel = document.createElement("label");
+  const embedBox = document.createElement("input");
+  embedBox.type = "checkbox";
+  embedLabel.title = t("tipFontEmbed");
+  embedLabel.append(embedBox, document.createTextNode(t("fontEmbed")));
+  const embedStatus = document.createElement("span");
+  embedStatus.className = "se-embed-status";
+  embedStatus.setAttribute("role", "status");
+  embedRow.append(embedLabel, embedStatus);
+  let embedBusy = false;
+  const isEmbedded = (family: string): boolean => embeddedFontNames(doc).some((n) => n.toLowerCase() === family.toLowerCase());
+  const refreshEmbed = (): void => {
+    const family = fontInput.value.trim();
+    embedBox.checked = !!family && isEmbedded(family);
+    embedBox.disabled = !family || embedBusy;
+    if (!embedBusy) embedStatus.textContent = "";
+  };
+  embedBox.addEventListener("change", () => {
+    const family = fontInput.value.trim();
+    if (!family) return;
+    if (!embedBox.checked) {
+      removeEmbeddedFamily(doc, family);
+      refreshEmbed();
+      host.onChange();
+      return;
+    }
+    embedBusy = true;
+    embedBox.disabled = true;
+    embedStatus.textContent = t("fontEmbedding");
+    void embedFamily(family).then((msg) => {
+      embedBusy = false;
+      refreshEmbed();
+      embedStatus.textContent = msg;
+    });
+  });
+  const embedFamily = async (family: string): Promise<string> => {
+    const lower = family.toLowerCase();
+    const uses = fontUsage(doc).filter((u) => u.family.toLowerCase() === lower);
+    const bold = (parseInt(style.fields.Bold ?? "0", 10) || 0) !== 0;
+    if (!uses.length) uses.push({ family, weight: bold ? 700 : 400, italic: (parseInt(style.fields.Italic ?? "0", 10) || 0) !== 0 });
+    const local = fontOpts?.local !== false;
+    const remote = !!fontOpts?.remote;
+    const out: FontToEmbed[] = [];
+    const seen = new Set<string>();
+    let total = 0;
+    // One at a time. Without a prompt first (granted permission, cache, catalog); only then
+    // may the local-fonts permission prompt show.
+    const get = (u: { weight: number; italic: boolean }, gesture: boolean): Promise<FontFile | null> =>
+      getFontFile(family, { weight: u.weight, italic: u.italic, instance: true, gesture, local, remote }).catch(() => null);
+    for (const u of uses) {
+      const f = (await get(u, false)) ?? (local ? await get(u, true) : null);
+      if (!f) return t("fontEmbedMissing", { name: family });
+      const why = embedRefusal(f);
+      if (why === "restricted") return t("fontEmbedRestricted", { name: family });
+      if (why) return t("fontEmbedMissing", { name: family });
+      const key = `${f.postscriptName ?? ""}|${String(f.weight)}|${f.italic}|${f.bytes.length}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      total += f.bytes.length;
+      out.push({ family, bold: u.weight >= 600, italic: u.italic, bytes: f.bytes, ext: f.format === "otf" || f.format === "ttc" ? f.format : "ttf" });
+    }
+    if (isEmbedded(family)) removeEmbeddedFamily(doc, family); // replace, never duplicate
+    embedFonts(doc, out);
+    host.onChange();
+    return t("fontEmbedded", { n: out.length, size: sizeText(total) });
+  };
   gGeneral.appendChild(
     numField(t("styleSize"), "se-f-size", style.fields.Fontsize ?? "", (v) => {
       style.fields.Fontsize = v;
       host.onChange();
     }),
   );
+  gGeneral.appendChild(embedRow);
+  refreshEmbed();
   // Alignment.
   const alignWrap = document.createElement("label");
   alignWrap.className = "se-f-align";

@@ -13,6 +13,8 @@ function open(text: string, filename: string): void {
   win.subChangeCount = 0; // lets a host (and the e2e suite) see that onChange really fired
   win.subSelections = [];
   handle = createSubtitleEditor(editorEl, { text, filename }, {
+    // The demo offers the Google Fonts catalog (after the user's consent in the dialog).
+    fonts: { remote: { provider: "google" } },
     onChange: () => {
       win.subChangeCount = (win.subChangeCount as number) + 1;
       console.log("edited");

@@ -17,7 +17,7 @@ import {
   newCueId,
   parseTimestamp,
 } from "../cue";
-import { parseEmbeddedFonts } from "../fonts";
+import { parseEmbeddedFonts, isSectionHeader, encodeEmbeddedFont, embeddedFontFilename, type EmbeddedFont } from "../fonts";
 
 const DEFAULT_EVENT_FORMAT = ["Layer", "Start", "End", "Style", "Name", "MarginL", "MarginR", "MarginV", "Effect", "Text"];
 export const DEFAULT_STYLE_FORMAT = [
@@ -215,14 +215,184 @@ export function styleNames(doc: SubtitleDoc): string[] {
 // decoded and its real family name read from the name table; if that fails we fall back
 // to the "fontname: Family_B<enc>.ttf" filename with the _<digits> suffix stripped.
 export function embeddedFontNames(doc: SubtitleDoc): string[] {
-  const raw = `${doc.assScriptInfo ?? ""}\n${doc.assStylesTail ?? ""}\n${doc.trailingNotes ?? ""}`;
   const names = new Set<string>();
-  for (const f of parseEmbeddedFonts(raw)) {
-    const fallback = f.filename.replace(/(?:_\d+)?\.(?:ttf|otf|ttc)$/i, "").trim();
-    const name = f.family ?? fallback;
+  for (const f of embeddedFonts(doc)) {
+    const name = embeddedFamily(f);
     if (name) names.add(name);
   }
   return [...names];
+}
+
+function embeddedFamily(f: EmbeddedFont): string {
+  return f.family ?? f.filename.replace(/(?:_B?I?U?\d+)?\.(?:ttf|otf|ttc)$/i, "").trim();
+}
+
+// The doc parts that may hold a [Fonts] section (it is kept verbatim in one of them).
+type FontPart = "assScriptInfo" | "assStylesTail" | "trailingNotes";
+const FONT_PARTS: FontPart[] = ["assStylesTail", "trailingNotes", "assScriptInfo"];
+
+// Embedded fonts, decoded. Memoized on the raw parts, which change only on a font edit.
+let fontsMemo: { key: string; fonts: EmbeddedFont[] } | null = null;
+export function embeddedFonts(doc: SubtitleDoc): EmbeddedFont[] {
+  const key = FONT_PARTS.map((p) => doc[p] ?? "").join("\n");
+  if (!/^fontname:/im.test(key)) return [];
+  if (fontsMemo?.key !== key) fontsMemo = { key, fonts: parseEmbeddedFonts(key) };
+  return fontsMemo.fonts;
+}
+
+// [start, end) line range of the [Fonts] section in lines, or null.
+function fontsRange(lines: string[]): [number, number] | null {
+  const at = lines.findIndex((l) => /^\[fonts\]\s*$/i.test(l.trim()));
+  if (at < 0) return null;
+  let end = at + 1;
+  while (end < lines.length && !isSectionHeader(lines[end])) end++;
+  return [at, end];
+}
+
+export interface FontToEmbed {
+  family: string;
+  bold: boolean;
+  italic: boolean;
+  bytes: Uint8Array;
+  /** File extension: ttf, otf or ttc. */
+  ext: string;
+}
+
+// Add fonts to the [Fonts] section, creating it before [Events] when missing. Entries go
+// after the existing ones; nothing else in the file changes.
+export function embedFonts(doc: SubtitleDoc, fonts: readonly FontToEmbed[]): void {
+  if (!fonts.length) return;
+  const eol = doc.eol;
+  const taken = new Set(embeddedFonts(doc).map((f) => f.filename.toLowerCase()));
+  const entries = fonts.map((f) => {
+    let name = embeddedFontFilename(f.family, f.bold, f.italic, f.ext);
+    for (let n = 2; taken.has(name.toLowerCase()); n++) name = embeddedFontFilename(`${f.family} ${n}`, f.bold, f.italic, f.ext);
+    taken.add(name.toLowerCase());
+    return encodeEmbeddedFont(name, f.bytes, eol);
+  });
+  for (const part of FONT_PARTS) {
+    const text = doc[part];
+    if (text == null) continue;
+    const lines = text.split(/\r?\n/);
+    const range = fontsRange(lines);
+    if (!range) continue;
+    let at = range[1];
+    while (at > range[0] + 1 && lines[at - 1].trim() === "") at--; // before the section's blank lines
+    lines.splice(at, 0, ...entries);
+    doc[part] = lines.join(eol);
+    return;
+  }
+  // No [Fonts] yet: insert it just before the [Events] header.
+  const part: FontPart = doc.assStylesTail != null ? "assStylesTail" : "assScriptInfo";
+  const lines = (doc[part] ?? "").split(/\r?\n/);
+  let at = lines.findIndex((l) => /^\[events\]\s*$/i.test(l.trim()));
+  if (at < 0) at = lines.length;
+  const block = ["[Fonts]", ...entries, ""];
+  // Keep one blank line between the previous section and [Fonts].
+  if (at > 0 && lines[at - 1].trim() !== "") block.unshift("");
+  lines.splice(at, 0, ...block);
+  doc[part] = lines.join(eol);
+}
+
+// Remove every embedded file of a family (case-insensitive); an emptied [Fonts] section
+// goes too. Returns how many files were removed.
+export function removeEmbeddedFamily(doc: SubtitleDoc, family: string): number {
+  const want = family.trim().toLowerCase();
+  let removed = 0;
+  for (const part of FONT_PARTS) {
+    const text = doc[part];
+    if (text == null) continue;
+    const lines = text.split(/\r?\n/);
+    const range = fontsRange(lines);
+    if (!range) continue;
+    const body = lines.slice(range[0] + 1, range[1]);
+    const kept: string[] = [];
+    for (let i = 0; i < body.length; ) {
+      const m = body[i].match(/^fontname:\s*(.+?)\s*$/i);
+      if (!m) {
+        kept.push(body[i++]);
+        continue;
+      }
+      let j = i + 1;
+      while (j < body.length && body[j].trim() !== "" && !/^fontname:/i.test(body[j])) j++;
+      const [f] = parseEmbeddedFonts(body.slice(i, j).join("\n"));
+      if (f && embeddedFamily(f).toLowerCase() === want) removed++;
+      else kept.push(...body.slice(i, j));
+      i = j;
+    }
+    if (kept.length === body.length) continue;
+    const empty = kept.every((l) => l.trim() === "");
+    if (empty) {
+      lines.splice(range[0], range[1] - range[0]); // the header and its body, trailing blank included
+    } else {
+      lines.splice(range[0] + 1, body.length, ...kept);
+    }
+    doc[part] = lines.join(doc.eol);
+  }
+  return removed;
+}
+
+// The text to hand a renderer that is given the embedded fonts separately: the [Fonts]
+// section is dropped (libass would add a copy of each font on every track reload).
+export function withoutFontsSection(text: string): string {
+  if (!/^\[fonts\]\s*$/im.test(text)) return text;
+  const lines = text.split(/(?<=\n)/);
+  const out: string[] = [];
+  let skip = false;
+  for (const l of lines) {
+    const t = l.trim();
+    if (isSectionHeader(t)) skip = /^\[fonts\]$/i.test(t);
+    if (!skip) out.push(l);
+  }
+  return out.join("");
+}
+
+/** A face the document draws with: a family at a weight, upright or italic. */
+export interface FontUse {
+  family: string;
+  weight: number;
+  italic: boolean;
+}
+
+// ASS Bold: 0 off, -1 (or 1) on, other values a weight (libass reads them so).
+function boldWeight(v: string | undefined): number {
+  const n = parseInt(v ?? "0", 10) || 0;
+  if (n === 0) return 400;
+  return n === -1 || n === 1 ? 700 : n;
+}
+
+// Every face the styles and the cues' \fn \b \i overrides use, deduplicated. Cheap and a
+// slight overestimate: a cue's override weights apply to all of its families.
+export function fontUsage(doc: SubtitleDoc): FontUse[] {
+  const out = new Map<string, FontUse>();
+  const add = (family: string, weight: number, italic: boolean): void => {
+    const name = family.replace(/^@/, "").trim();
+    if (!name) return;
+    const key = `${name.toLowerCase()}|${weight}|${italic ? 1 : 0}`;
+    if (!out.has(key)) out.set(key, { family: name, weight, italic });
+  };
+  const styles = new Map((doc.styles ?? []).map((s) => [s.name, s]));
+  const used = new Set<string>();
+  for (const cue of doc.cues) {
+    if (cue.assKind === "Comment") continue;
+    const style = styles.get(cue.assFields?.Style ?? "") ?? styles.get("Default") ?? doc.styles?.[0];
+    if (style) used.add(style.name);
+    if (!cue.text.includes("{")) continue;
+    const base = style?.fields.Fontname ?? "";
+    const families = new Set<string>([base]);
+    const weights = new Set<number>([boldWeight(style?.fields.Bold)]);
+    const italics = new Set<boolean>([(parseInt(style?.fields.Italic ?? "0", 10) || 0) !== 0]);
+    for (const m of cue.text.matchAll(/\\fn([^\\}]*)/g)) families.add(m[1]);
+    for (const m of cue.text.matchAll(/\\b(\d+)/g)) weights.add(boldWeight(m[1]));
+    if (/\\i1/.test(cue.text)) italics.add(true);
+    for (const f of families) for (const w of weights) for (const i of italics) add(f, w, i);
+  }
+  // Styles: the ones cues use, or all of them for a file without cues yet.
+  for (const s of doc.styles ?? []) {
+    if (used.size && !used.has(s.name)) continue;
+    add(s.fields.Fontname ?? "", boldWeight(s.fields.Bold), (parseInt(s.fields.Italic ?? "0", 10) || 0) !== 0);
+  }
+  return [...out.values()];
 }
 
 // The script resolution (\pos and drawings are in these coordinates). ASS defaults to

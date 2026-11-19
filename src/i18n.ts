@@ -3,6 +3,8 @@
 // match), English fallback. Add a language = add a dict to LOCALES; a host may force
 // one via setLocale(). Placeholders like {n} are filled by t(key, { n }).
 
+import { setFontLocale } from "fontshelf";
+
 type Dict = Record<string, string>;
 
 const en: Dict = {
@@ -280,6 +282,12 @@ const en: Dict = {
   posML: "Middle left", posMC: "Middle center", posMR: "Middle right",
   posBL: "Bottom left", posBC: "Bottom center", posBR: "Bottom right",
   alignPos: "Position",
+  fontEmbed: "Embed in file",
+  tipFontEmbed: "Store this font's files in the subtitle file ([Fonts] section), so players without the font still draw it. Only fonts whose licence allows embedding in an editable document. Makes the file bigger.",
+  fontEmbedding: "Getting the font files…",
+  fontEmbedded: "Embedded: {n} file(s), {size}.",
+  fontEmbedMissing: "No font file available for {name}. Use Show my fonts or Get more fonts in the list, then try again.",
+  fontEmbedRestricted: "The licence of {name} does not allow embedding it in an editable file.",
 };
 
 const fr: Dict = {
@@ -557,6 +565,12 @@ const fr: Dict = {
   posML: "Milieu gauche", posMC: "Milieu centre", posMR: "Milieu droite",
   posBL: "Bas gauche", posBC: "Bas centre", posBR: "Bas droite",
   alignPos: "Position",
+  fontEmbed: "Intégrer au fichier",
+  tipFontEmbed: "Enregistre les fichiers de cette police dans le fichier de sous-titres (section [Fonts]), pour que les lecteurs qui ne l'ont pas l'affichent quand même. Seulement les polices dont la licence permet l'intégration dans un document modifiable. Le fichier grossit.",
+  fontEmbedding: "Récupération des fichiers de police…",
+  fontEmbedded: "Intégrée : {n} fichier(s), {size}.",
+  fontEmbedMissing: "Aucun fichier de police disponible pour {name}. Utilisez Afficher mes polices ou Obtenir plus de polices dans la liste, puis réessayez.",
+  fontEmbedRestricted: "La licence de {name} ne permet pas de l'intégrer dans un fichier modifiable.",
 };
 
 const ja: Dict = {
@@ -834,6 +848,12 @@ const ja: Dict = {
   posML: "左中央", posMC: "中央", posMR: "右中央",
   posBL: "左下", posBC: "中央下", posBR: "右下",
   alignPos: "位置",
+  fontEmbed: "ファイルに埋め込む",
+  tipFontEmbed: "このフォントのファイルを字幕ファイル（[Fonts] セクション）に保存し、フォントがない環境でも表示できるようにします。編集可能な文書への埋め込みをライセンスが許すフォントのみ。ファイルは大きくなります。",
+  fontEmbedding: "フォントファイルを取得しています…",
+  fontEmbedded: "埋め込み済み：{n} ファイル、{size}。",
+  fontEmbedMissing: "{name} のフォントファイルがありません。一覧の「自分のフォントを表示」または「フォントを追加」を使ってから、もう一度お試しください。",
+  fontEmbedRestricted: "{name} のライセンスでは、編集可能なファイルへの埋め込みが許可されていません。",
 };
 
 const es: Dict = {
@@ -1111,6 +1131,12 @@ const es: Dict = {
   posML: "Medio izquierda", posMC: "Medio centro", posMR: "Medio derecha",
   posBL: "Abajo izquierda", posBC: "Abajo centro", posBR: "Abajo derecha",
   alignPos: "Posición",
+  fontEmbed: "Incrustar en el archivo",
+  tipFontEmbed: "Guarda los archivos de esta fuente en el archivo de subtítulos (sección [Fonts]), para que los reproductores sin la fuente la muestren igual. Solo fuentes cuya licencia permite incrustarlas en un documento editable. El archivo crece.",
+  fontEmbedding: "Obteniendo los archivos de la fuente…",
+  fontEmbedded: "Incrustada: {n} archivo(s), {size}.",
+  fontEmbedMissing: "No hay ningún archivo de fuente para {name}. Use Mostrar mis fuentes u Obtener más fuentes en la lista y vuelva a intentarlo.",
+  fontEmbedRestricted: "La licencia de {name} no permite incrustarla en un archivo editable.",
 };
 
 const de: Dict = {
@@ -1388,6 +1414,12 @@ const de: Dict = {
   posML: "Mitte links", posMC: "Mitte", posMR: "Mitte rechts",
   posBL: "Unten links", posBC: "Unten Mitte", posBR: "Unten rechts",
   alignPos: "Position",
+  fontEmbed: "In Datei einbetten",
+  tipFontEmbed: "Speichert die Dateien dieser Schrift in der Untertiteldatei (Abschnitt [Fonts]), damit Player ohne die Schrift sie trotzdem anzeigen. Nur Schriften, deren Lizenz das Einbetten in ein bearbeitbares Dokument erlaubt. Die Datei wird größer.",
+  fontEmbedding: "Schriftdateien werden geholt…",
+  fontEmbedded: "Eingebettet: {n} Datei(en), {size}.",
+  fontEmbedMissing: "Keine Schriftdatei für {name} verfügbar. Nutzen Sie in der Liste Meine Schriften anzeigen oder Weitere Schriften holen und versuchen Sie es erneut.",
+  fontEmbedRestricted: "Die Lizenz von {name} erlaubt kein Einbetten in eine bearbeitbare Datei.",
 };
 
 const pt: Dict = {
@@ -1665,6 +1697,12 @@ const pt: Dict = {
   posML: "Meio esquerdo", posMC: "Meio centro", posMR: "Meio direito",
   posBL: "Inferior esquerdo", posBC: "Inferior centro", posBR: "Inferior direito",
   alignPos: "Posição",
+  fontEmbed: "Incorporar no ficheiro",
+  tipFontEmbed: "Guarda os ficheiros deste tipo de letra no ficheiro de legendas (secção [Fonts]), para que os leitores sem ele o mostrem na mesma. Só tipos de letra cuja licença permite a incorporação num documento editável. O ficheiro fica maior.",
+  fontEmbedding: "A obter os ficheiros do tipo de letra…",
+  fontEmbedded: "Incorporado: {n} ficheiro(s), {size}.",
+  fontEmbedMissing: "Não há ficheiro disponível para {name}. Use Mostrar os meus tipos de letra ou Obter mais tipos de letra na lista e tente de novo.",
+  fontEmbedRestricted: "A licença de {name} não permite incorporá-lo num ficheiro editável.",
 };
 
 const ru: Dict = {
@@ -1942,6 +1980,12 @@ const ru: Dict = {
   posML: "По центру слева", posMC: "По центру", posMR: "По центру справа",
   posBL: "Внизу слева", posBC: "Внизу по центру", posBR: "Внизу справа",
   alignPos: "Положение",
+  fontEmbed: "Встроить в файл",
+  tipFontEmbed: "Сохраняет файлы этого шрифта в файле субтитров (раздел [Fonts]), чтобы плееры без шрифта всё равно его показывали. Только шрифты, лицензия которых разрешает встраивание в редактируемый документ. Файл станет больше.",
+  fontEmbedding: "Получение файлов шрифта…",
+  fontEmbedded: "Встроено: файлов {n}, {size}.",
+  fontEmbedMissing: "Нет файла шрифта {name}. Выберите в списке «Показать мои шрифты» или «Другие шрифты» и повторите.",
+  fontEmbedRestricted: "Лицензия шрифта {name} не разрешает встраивать его в редактируемый файл.",
 };
 
 const zh: Dict = {
@@ -2219,11 +2263,18 @@ const zh: Dict = {
   posML: "左侧居中", posMC: "正中", posMR: "右侧居中",
   posBL: "左下", posBC: "下方居中", posBR: "右下",
   alignPos: "位置",
+  fontEmbed: "嵌入文件",
+  tipFontEmbed: "将此字体的文件保存到字幕文件（[Fonts] 部分），没有该字体的播放器也能显示。仅限许可允许嵌入可编辑文档的字体。文件会变大。",
+  fontEmbedding: "正在获取字体文件…",
+  fontEmbedded: "已嵌入：{n} 个文件，{size}。",
+  fontEmbedMissing: "没有 {name} 的字体文件。请在列表中使用“显示我的字体”或“获取更多字体”，然后重试。",
+  fontEmbedRestricted: "{name} 的许可不允许嵌入可编辑的文件。",
 };
 
 const LOCALES: Record<string, Dict> = { en, fr, ja, es, de, pt, ru, zh };
 
 let current: Dict = en;
+let currentCode = "en";
 
 function detect(): Dict {
   const langs =
@@ -2232,11 +2283,19 @@ function detect(): Dict {
       : [];
   for (const lang of langs) {
     const base = (lang || "").toLowerCase().split("-")[0];
-    if (LOCALES[base]) return LOCALES[base];
+    if (LOCALES[base]) {
+      currentCode = base;
+      return LOCALES[base];
+    }
   }
   return en;
 }
 current = detect();
+
+/** The UI language in use ("en", "fr", ...). */
+export function localeCode(): string {
+  return currentCode;
+}
 
 // Numpad-position alignment options (ASS \\anN), labeled with words, top row first.
 export function alignmentOptions(): { value: string; label: string }[] {
@@ -2251,6 +2310,8 @@ export function alignmentOptions(): { value: string; label: string }[] {
 export function setLocale(code: string): void {
   const base = (code || "").toLowerCase().split("-")[0];
   current = LOCALES[base] ?? en;
+  currentCode = LOCALES[base] ? base : "en";
+  setFontLocale(currentCode); // fontshelf's picker and dialogs follow
 }
 
 export function t(key: string, vars?: Record<string, string | number>): string {
